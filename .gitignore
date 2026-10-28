@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Datasets and derived data — never commit (dataset terms of use forbid redistribution)
+data/
+datasets/
+*.mp4
+*.zip
+*.tar
+*.tar.gz
+
+# Cached features, model weights, experiment outputs
+cache/
+features/
+checkpoints/
+runs/
+*.npy
+*.npz
+*.pt
+*.pth
+*.safetensors
+*.joblib
+
+# Secrets
+.env
+kaggle.json
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
