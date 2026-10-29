@@ -1,0 +1,77 @@
+{
+  "args": {
+    "method": "a",
+    "groups": [
+      "spectrum"
+    ],
+    "holdout": 0.3,
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "C": 1.0
+  },
+  "seed": 0,
+  "shards": [
+    "HFCF_small_0.parquet",
+    "HFCF_small_101.parquet",
+    "HFCF_small_117.parquet",
+    "HFCF_small_125.parquet",
+    "HFCF_small_133.parquet",
+    "HFCF_small_141.parquet",
+    "HFCF_small_157.parquet",
+    "HFCF_small_165.parquet",
+    "HFCF_small_173.parquet",
+    "HFCF_small_181.parquet",
+    "HFCF_small_20.parquet",
+    "HFCF_small_40.parquet",
+    "HFCF_small_60.parquet",
+    "HFCF_small_66.parquet",
+    "HFCF_small_67.parquet",
+    "HFCF_small_68.parquet",
+    "HFCF_small_69.parquet",
+    "HFCF_small_70.parquet",
+    "HFCF_small_71.parquet",
+    "HFCF_small_72.parquet",
+    "HFCF_small_73.parquet",
+    "HFCF_small_74.parquet",
+    "HFCF_small_75.parquet",
+    "HFCF_small_76.parquet",
+    "HFCF_small_77.parquet",
+    "HFCF_small_78.parquet",
+    "HFCF_small_79.parquet",
+    "HFCF_small_80.parquet",
+    "HFCF_small_81.parquet",
+    "HFCF_small_82.parquet",
+    "HFCF_small_83.parquet",
+    "HFCF_small_87.parquet",
+    "HFCF_small_88.parquet"
+  ],
+  "val": {
+    "n_real": 1800,
+    "n_fake": 1393,
+    "accuracy": 0.7720012527403696,
+    "fpr": 0.21222222222222223,
+    "fnr": 0.24838478104809758,
+    "auc": 0.8541848129536572
+  },
+  "test_seen": {
+    "n_real": 3600,
+    "n_fake": 2787,
+    "accuracy": 0.7626428683262878,
+    "fpr": 0.22277777777777777,
+    "fnr": 0.25618945102260493,
+    "auc": 0.8408577522624885
+  },
+  "test_unseen": {
+    "n_real": 3600,
+    "n_fake": 10068,
+    "accuracy": 0.6362306116476442,
+    "fpr": 0.22277777777777777,
+    "fnr": 0.4141835518474374,
+    "auc": 0.7569001346400035
+  }
+}

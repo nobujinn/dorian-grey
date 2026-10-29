@@ -1,0 +1,8 @@
+part,architecture,n,detected
+test_seen,GAN,1903.0,0.9353652128218602
+test_seen,LatDiff,824.0,0.9356796116504854
+test_seen,PixDiff,60.0,0.95
+test_unseen,GAN,2622.0,0.9012204424103738
+test_unseen,LatDiff,3281.0,0.37640963120999693
+test_unseen,Other,2077.0,0.783822821376986
+test_unseen,PixDiff,2088.0,0.9099616858237548

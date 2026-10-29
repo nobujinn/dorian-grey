@@ -9,6 +9,8 @@ fixed at 0.5 and never tuned on test data.
 | Folder | Content |
 |---|---|
 | `method_b/` | Method B, 5 split seeds: `summary.csv` (mean, std), `summary_per_seed.csv`, per seed `metrics.json`, `per_architecture.csv`, `per_format.csv` |
+| `method_a/` | Method A, same layout as `method_b/`, plus `coefficients.csv` per seed |
+| `method_a_<groups>/` | Method A trained on a subset of feature groups (ablation) |
 | `robustness_b/` | Method B under JPEG recompression and resizing: `metrics.csv`, `flagged_by_format.csv` |
 | `figures/` | `robustness.pdf` (for LaTeX), `robustness.png` |
 
@@ -154,8 +156,88 @@ Laplacian residual at k/8 cycle/pixel (12), residual statistics, co-occurrences 
 correlation (63), 8×8 block-DCT energy and blockiness (65). Standardised logistic regression; the
 per-image explanation is coefficient × standardised value per feature. Extraction ~40–46 img/s on CPU.
 
-*Results pending* (feature extraction running 29. 10. 2026): 5-seed classification, feature-group
-ablation, robustness, comparison with Method B.
+Same 42,000 images, same 5 split seeds and same threshold as Method B, so all differences are due to
+the method.
+
+### 3.1 Seen vs. unseen generators (5 seeds), A vs. B
+
+| Method | Test set | Accuracy | FPR | FNR | AUC |
+|---|---|---|---|---|---|
+| A | Seen | 0.918 ± 0.027 | 0.083 ± 0.019 | 0.082 ± 0.034 | 0.971 ± 0.018 |
+| A | Unseen | 0.777 ± 0.080 | 0.083 ± 0.019 | 0.304 ± 0.137 | 0.832 ± 0.117 |
+| B | Seen | 0.968 ± 0.005 | 0.030 ± 0.005 | 0.033 ± 0.007 | 0.996 ± 0.001 |
+| B | Unseen | 0.923 ± 0.033 | 0.030 ± 0.005 | 0.105 ± 0.055 | 0.985 ± 0.008 |
+
+Per seed, Method A unseen FNR = 0.296, 0.179, 0.445, 0.159, 0.441 (seeds 0–4).
+
+### 3.2 The unseen-generator gap is mostly one JPEG generator (LFM)
+
+Method A's unseen results are bimodal: in seeds 0, 2, 4 unseen latent diffusion is detected at only
+0.37–0.48, in seeds 1, 3 at 0.94. The difference is whether LFM, the only JPEG generator, is held out:
+
+| Seed | LFM is in | A: LFM detected | B: LFM detected | A: other unseen LatDiff | B: other unseen LatDiff |
+|---|---|---|---|---|---|
+| 0 | unseen test | 0.039 | 0.684 | 0.949 | 0.953 |
+| 1 | train (seen test) | 0.443 | 0.895 | 0.943 | 0.960 |
+| 2 | unseen test | 0.029 | 0.689 | 0.949 | 0.960 |
+| 3 | train (seen test) | 0.405 | 0.925 | 0.941 | 0.930 |
+| 4 | unseen test | 0.025 | 0.731 | 0.951 | 0.950 |
+
+Real images flagged as fake, by format (seed 0): A 0.009 JPEG / 0.108 PNG; B 0.019 JPEG / 0.039 PNG.
+
+**Findings**
+- Without LFM, both methods detect unseen latent-diffusion generators equally well (0.94–0.96).
+  Method A's large unseen gap is almost entirely the **JPEG shortcut**: a held-out JPEG generator is
+  detected at 2.5–3.9 %, i.e. Method A has learned "JPEG traces ⇒ real".
+- Even with LFM in training, Method A detects only 0.41–0.44 of the LFM test images, and its FPR on
+  real JPEGs rises to ~0.07: hand-crafted low-level statistics cannot separate a JPEG fake from a JPEG
+  photo well. Method B is much less format-dependent (LFM 0.68–0.73 unseen, 0.90–0.93 seen; real FPR
+  similar for both formats).
+- Method A's FPR is format-dependent in the other direction too: real PNGs are flagged 0.108–0.137,
+  real JPEGs ~0.01.
+
+### 3.3 Feature-group ablation (5 seeds)
+
+| Features | AUC seen | AUC unseen | FNR unseen | LFM detected (unseen seeds) | Real flagged JPEG / PNG |
+|---|---|---|---|---|---|
+| spectrum (25) | 0.824 ± 0.011 | 0.772 ± 0.017 | 0.404 ± 0.017 | | |
+| periodic (12) | 0.643 ± 0.024 | 0.664 ± 0.060 | 0.378 ± 0.090 | | |
+| residual (63) | 0.951 ± 0.023 | 0.858 ± 0.087 | 0.279 ± 0.143 | 0.067 | 0.042 / 0.160 |
+| dct (65) | 0.905 ± 0.022 | 0.766 ± 0.083 | 0.392 ± 0.086 | | |
+| all but dct (100) | 0.960 | 0.865 ± 0.086 | 0.280 | 0.046 | 0.037 / 0.137 |
+| all (165) | 0.971 ± 0.018 | 0.832 ± 0.117 | 0.304 ± 0.137 | 0.031 | 0.034 / 0.121 |
+
+(FPR per group, 5-seed mean: spectrum 0.219, periodic 0.399, residual 0.108, dct 0.167, all 0.083.
+LFM and per-format columns are only computed for the three rows shown.)
+
+**Findings**
+- The **noise-residual** group carries most of the signal: alone it reaches AUC 0.951 seen / 0.858
+  unseen, and on unseen generators it is no worse than all features combined.
+- The DCT group fits the training generators (AUC 0.905 seen) but generalises poorly (0.766 unseen);
+  removing it raises unseen AUC slightly (0.832 → 0.865, within the seed spread).
+- Removing DCT does **not** remove the JPEG shortcut (LFM 0.031 → 0.046): compression changes the
+  residual statistics too, so the shortcut cannot be fixed by feature selection. It has to be broken in
+  the training data (JPEG augmentation of both classes, or JPEG fakes from several generators).
+- The periodic-peak features are weak on this data (AUC 0.64). Expected for latent diffusion, whose
+  decoder traces are less periodic than GAN upsampling; to be checked per architecture.
+
+### 3.4 What the classifier uses (seed 0, all features)
+
+Largest standardised coefficients (log-odds of "fake" per standard deviation; negative = evidence of
+"real"): `res_kv3_logstd` −9.04, `cooc_kv3_-2_0` −3.91, `spec_r23` −3.78, `spec_r21` +3.26,
+`cooc_kv3_2_-1` +3.24, `cooc_kv3_0_2` −3.06, `dct_56_logstd` +2.73, `dct_26_logstd` −2.69,
+`rgb_corr_rb` −2.41. The dominant cue is the **energy of the high-pass noise residual** (more noise ⇒
+real), consistent with generated images lacking sensor noise. Features are strongly correlated, so
+individual coefficients (e.g. the opposite signs of neighbouring spectrum bins) should not be
+over-interpreted; the per-image explanation should aggregate contributions per group.
+
+### 3.5 Dataset bias found through Method A features
+
+1,410 images have inter-channel residual correlation ≥ 0.999, i.e. they are effectively **grayscale**:
+1,336 real, 74 fake. **7.4 % of real images but 0.3 % of fakes are grayscale**, so colour itself is a
+"real" cue available to both methods. To be reported, and controlled (e.g. evaluate on colour images
+only, or convert a share of fakes to grayscale in training). Three images have a constant colour
+channel (correlation undefined, stored as 0).
 
 **Design finding:** the SRM `kv3` kernel is separable, (2 − 2 cos ωx)(2 − 2 cos ωy)/4, so its frequency
 response is zero on both frequency axes; peaks of purely horizontal or vertical periodic traces would
@@ -164,8 +246,10 @@ except at DC). Caught by a unit test with a synthetic period-4 pattern.
 
 ## 4. Open issues / next steps
 
-- JPEG fakes from several generators (or JPEG-augmented training) to measure the shortcut on clean data.
-- Train-time JPEG/resize augmentation for Method B; calibration (reliability diagram, ECE).
+- **Break the JPEG shortcut in training** (both methods): random JPEG recompression of real and fake
+  training images, and/or JPEG fakes from several generators. Then re-measure LFM and the robustness grid.
+- Control the grayscale bias (3.5).
+- Train-time resize augmentation for Method B; calibration (reliability diagram, ECE).
 - Tune C on the validation set (currently fixed at 1).
-- Method A results, A vs. B comparison on identical images, robustness of Method A.
+- Per-group aggregation of Method A's per-image explanation.
 - Face swap (FF++ face crops) and local manipulation with localisation (CASIA / IMD2020 masks).
