@@ -59,7 +59,7 @@ def robustness_figure(out_dir):
             _style_axes(ax)
     for ax in axes[:, 0]:  # after all panels are drawn, so the shared limits cover both columns
         ax.set_ylim(bottom=0)
-    handles = [plt.Line2D([], [], color=s["color"], marker=s["marker"], markeredgecolor="white", label=s["label"])
+    handles = [plt.Line2D([], [], color=s["color"], marker=s["marker"], label=s["label"])
                for m, s in STYLE.items() if m in data]
     handles += [plt.Line2D([], [], color=MUTED, linestyle="-", label="seen generators"),
                 plt.Line2D([], [], color=MUTED, linestyle="--", label="unseen generators")]

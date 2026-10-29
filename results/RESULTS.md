@@ -11,6 +11,7 @@ fixed at 0.5 and never tuned on test data.
 | `method_b/` | Method B, 5 split seeds: `summary.csv` (mean, std), `summary_per_seed.csv`, per seed `metrics.json`, `per_architecture.csv`, `per_format.csv` |
 | `method_a/` | Method A, same layout as `method_b/`, plus `coefficients.csv` per seed |
 | `method_a_<groups>/` | Method A trained on a subset of feature groups (ablation) |
+| `robustness_a/` | Method A under JPEG recompression and resizing, same layout as `robustness_b/` |
 | `robustness_b/` | Method B under JPEG recompression and resizing: `metrics.csv`, `flagged_by_format.csv` |
 | `figures/` | `robustness.pdf` (for LaTeX), `robustness.png` |
 
@@ -146,7 +147,7 @@ Rate of images flagged as fake, by group and *original* file format:
   (a) training with JPEG/resize augmentation, and (b) calibrating the probability on degraded
   validation images.
 
-![Method B robustness](figures/robustness.png)
+(Figure: see 3.5, A vs. B.)
 
 ## 3. Method A: hand-crafted forensic features + logistic regression
 
@@ -231,7 +232,40 @@ real), consistent with generated images lacking sensor noise. Features are stron
 individual coefficients (e.g. the opposite signs of neighbouring spectrum bins) should not be
 over-interpreted; the per-image explanation should aggregate contributions per group.
 
-### 3.5 Dataset bias found through Method A features
+### 3.5 Robustness to JPEG recompression and resizing, A vs. B (seed 0)
+
+Same 3,000-image subset and perturbations as 2.4; both classifiers trained on clean images.
+
+| Condition | A: FPR | A: FNR seen | A: FNR unseen | A: AUC seen / unseen | B: FPR | B: FNR seen | B: FNR unseen | B: AUC seen / unseen |
+|---|---|---|---|---|---|---|---|---|
+| clean | 0.055 | 0.063 | 0.288 | 0.988 / 0.853 | 0.034 | 0.034 | 0.103 | 0.995 / 0.984 |
+| JPEG q95 | 0.012 | 0.536 | 0.686 | 0.901 / 0.786 | 0.017 | 0.176 | 0.268 | 0.977 / 0.967 |
+| JPEG q85 | 0.010 | 0.870 | 0.908 | 0.708 / 0.669 | 0.022 | 0.281 | 0.354 | 0.959 / 0.946 |
+| JPEG q75 | 0.008 | 0.953 | 0.942 | 0.559 / 0.606 | 0.010 | 0.390 | 0.418 | 0.952 / 0.945 |
+| JPEG q50 | 0.001 | 0.978 | 0.968 | 0.595 / 0.588 | 0.015 | 0.462 | 0.585 | 0.933 / 0.905 |
+| resize ×0.5 | 0.587 | 0.078 | 0.137 | 0.821 / 0.780 | 0.162 | 0.039 | 0.038 | 0.974 / 0.969 |
+| resize ×0.75 | 0.278 | 0.104 | 0.243 | 0.906 / 0.815 | 0.092 | 0.026 | 0.032 | 0.991 / 0.987 |
+| resize ×1.5 | 0.754 | 0.096 | 0.095 | 0.598 / 0.616 | 0.192 | 0.015 | 0.042 | 0.987 / 0.971 |
+
+Method A, rate flagged as fake by group and original format: fake PNG (seen) 0.937 clean → 0.464 q95 →
+0.047 q75; real PNG 0.081 clean → 0.007 q95; real JPEG 0.019 clean → 0.533 at ×0.5 and 0.967 at ×1.5.
+
+**Findings**
+- **Method A breaks down under JPEG.** Already at quality 95 it misses over half of the fakes
+  (FNR 0.536 seen); from q85 on it calls almost everything real (FNR 0.87–0.98), and AUC falls to
+  0.56–0.61 at q75–q50, i.e. close to chance. Unlike Method B (AUC ≥ 0.905 throughout), the
+  information itself is destroyed, not just shifted: the hand-crafted features measure exactly the
+  high-frequency content that JPEG quantisation removes.
+- **Resizing makes Method A flag real images**: FPR 0.587 at ×0.5 and 0.754 at ×1.5 (B: 0.162, 0.192).
+  Interpolation changes the residual and spectrum statistics the same way generation does; at ×1.5,
+  96.7 % of real JPEGs are flagged (upscaling smooths away the noise that A uses as evidence of a camera).
+- So, on clean images A is a reasonable, explainable detector for seen generators (AUC 0.988), but
+  without augmentation it is not usable on images that were recompressed or rescaled, which is the
+  normal case online. Method B degrades too, but it keeps its ranking ability.
+
+![A vs. B robustness](figures/robustness.png)
+
+### 3.6 Dataset bias found through Method A features
 
 1,410 images have inter-channel residual correlation ≥ 0.999, i.e. they are effectively **grayscale**:
 1,336 real, 74 fake. **7.4 % of real images but 0.3 % of fakes are grayscale**, so colour itself is a
@@ -248,7 +282,7 @@ except at DC). Caught by a unit test with a synthetic period-4 pattern.
 
 - **Break the JPEG shortcut in training** (both methods): random JPEG recompression of real and fake
   training images, and/or JPEG fakes from several generators. Then re-measure LFM and the robustness grid.
-- Control the grayscale bias (3.5).
+- Control the grayscale bias (3.6).
 - Train-time resize augmentation for Method B; calibration (reliability diagram, ECE).
 - Tune C on the validation set (currently fixed at 1).
 - Per-group aggregation of Method A's per-image explanation.
