@@ -32,3 +32,12 @@ def test_jpeg_is_lossy_and_keeps_size():
 def test_every_condition_returns_rgb_or_original():
     for c in CONDITIONS:
         assert apply(_image("P"), c).mode in {"RGB", "P"}
+
+
+def test_random_augment_is_deterministic_and_in_range():
+    from dorian_gray.perturb import random_augment
+    params = [random_augment(_image("RGB"), np.random.default_rng([1, s]))[1] for s in range(200)]
+    assert params == [random_augment(_image("RGB"), np.random.default_rng([1, s]))[1] for s in range(200)]
+    qualities, scales = zip(*params)
+    assert all(q == 0 or 30 <= q <= 100 for q in qualities) and all(0.5 <= s <= 1.5 for s in scales)
+    assert 0.35 < np.mean([q > 0 for q in qualities]) < 0.65 and 0.35 < np.mean([s != 1 for s in scales]) < 0.65

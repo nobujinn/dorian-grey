@@ -6,7 +6,7 @@ the classifier trained on clean images. The threshold stays at 0.5, so a shift o
 distribution shows up directly as a change in FPR / FNR.
 
 Features are cached per shard with all conditions in one file, so an interrupted run resumes.
-Usage: uv run python -m dorian_gray.experiments.robustness --method {a,b} [--n 1000]
+Usage: uv run python -m dorian_gray.experiments.robustness --method {a,b} [--n 1000] [--train-aug]
 """
 
 import argparse
@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 from dorian_gray.config import CACHE_DIR, RUNS_DIR
 from dorian_gray.data.community_forensics import LOCAL_DIR
-from dorian_gray.experiments.classify import features_matrix, fit_probe, load_split
+from dorian_gray.experiments.classify import features_matrix, fit_probe, load_augmented, load_split
 from dorian_gray.features import iter_shard
 from dorian_gray.methods import METHODS
 from dorian_gray.metrics import binary_metrics
@@ -75,12 +75,13 @@ def main():
     ap.add_argument("--holdout", type=float, default=0.3)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--C", type=float, default=1.0)
+    ap.add_argument("--train-aug", action="store_true", help="classifier also trained on augmented copies")
     args = ap.parse_args()
 
     method = METHODS[args.method]
     cache = f"{method.features}_robust"
     df = load_split(method.features, args.holdout, args.seed)
-    probe = fit_probe(df, method.classifier(args.C))
+    probe = fit_probe(df, method.classifier(args.C), load_augmented(method.features, df) if args.train_aug else None)
     subset = robust_subset(df, args.n, args.seed)
     extract(subset, method.extractor(), cache, method.cache_dtype)
     data = load_robust(subset, cache)
@@ -96,7 +97,7 @@ def main():
         by_format.append(flagged.reset_index().assign(condition=c))
     metrics, by_format = pd.DataFrame(metrics), pd.concat(by_format)
 
-    out = RUNS_DIR / f"robustness_{args.method}" / datetime.now().strftime("%Y%m%d-%H%M%S")
+    out = RUNS_DIR / f"robustness_{args.method}{'_aug' if args.train_aug else ''}" / datetime.now().strftime("%Y%m%d-%H%M%S")
     out.mkdir(parents=True)
     (out / "args.json").write_text(json.dumps(vars(args), indent=2))
     metrics.to_csv(out / "metrics.csv", index=False)

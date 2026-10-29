@@ -34,22 +34,25 @@ def _style_axes(ax):
     ax.tick_params(colors=MUTED, labelcolor=INK, labelsize=8)
 
 
-def robustness_figure(out_dir):
-    data = {m: latest(f"robustness_{m}/*/metrics.csv") for m in STYLE}
-    data = {m: d for m, d in data.items() if d is not None}
+def robustness_figure(path, series: list[dict], sets: list[tuple[str, str]], line_legend: list[tuple[str, str]]):
+    """2x2 small multiples: rows FPR / FNR, columns JPEG quality / resize factor.
+
+    series: one line family per entry {"pattern", "method", "linestyle" (optional)};
+    sets: (test set, linestyle) for FNR; FPR only depends on the real images, shared by both sets.
+    """
+    loaded = [(s, latest(s["pattern"])) for s in series]
+    loaded = [(s, d) for s, d in loaded if d is not None]
     fig, axes = plt.subplots(2, 2, figsize=(7, 4.6), sharey="row", constrained_layout=True)
     for col, (conds, xlabel) in enumerate([(JPEG, "JPEG quality"), (RESIZE, "resize factor")]):
         xs = list(range(len(conds))) if conds is JPEG else [x for _, x in conds]
         for row, metric in enumerate(["fpr", "fnr"]):
             ax = axes[row, col]
-            for m, d in data.items():
+            for s, d in loaded:
                 v = d.set_index(["condition", "set"])[metric]
-                # FPR only depends on the real images, which both test sets share
-                sets = [("seen", "-")] if metric == "fpr" else [("seen", "-"), ("unseen", "--")]
-                for s, ls in sets:
-                    ax.plot(xs, [v[(c, s)] for c, _ in conds], linestyle=ls, linewidth=1.5,
-                            marker=STYLE[m]["marker"], markersize=5, color=STYLE[m]["color"],
-                            markeredgecolor="white", markeredgewidth=0.8)
+                for test_set, ls in (sets[:1] if metric == "fpr" else sets):
+                    ax.plot(xs, [v[(c, test_set)] for c, _ in conds], linestyle=s.get("linestyle", ls),
+                            linewidth=1.5, marker=STYLE[s["method"]]["marker"], markersize=5,
+                            color=STYLE[s["method"]]["color"], markeredgecolor="white", markeredgewidth=0.8)
             ax.set_xticks(xs, [str(x) for _, x in conds])
             if row == 1:
                 ax.set_xlabel(xlabel, fontsize=9, color=INK)
@@ -59,20 +62,27 @@ def robustness_figure(out_dir):
             _style_axes(ax)
     for ax in axes[:, 0]:  # after all panels are drawn, so the shared limits cover both columns
         ax.set_ylim(bottom=0)
-    handles = [plt.Line2D([], [], color=s["color"], marker=s["marker"], label=s["label"])
-               for m, s in STYLE.items() if m in data]
-    handles += [plt.Line2D([], [], color=MUTED, linestyle="-", label="seen generators"),
-                plt.Line2D([], [], color=MUTED, linestyle="--", label="unseen generators")]
+    methods = dict.fromkeys(s["method"] for s, _ in loaded)
+    handles = [plt.Line2D([], [], color=STYLE[m]["color"], marker=STYLE[m]["marker"], label=STYLE[m]["label"])
+               for m in methods]
+    handles += [plt.Line2D([], [], color=MUTED, linestyle=ls, label=label) for label, ls in line_legend]
     fig.legend(handles=handles, loc="outside upper center", ncol=len(handles), frameon=False, fontsize=8)
     for ext in ("pdf", "png"):
-        fig.savefig(out_dir / f"robustness.{ext}", dpi=200)
+        fig.savefig(path.with_suffix(f".{ext}"), dpi=200)
     plt.close(fig)
 
 
 def main():
     out_dir = RUNS_DIR / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
-    robustness_figure(out_dir)
+    # A vs. B, classifiers trained on clean images; seen and unseen generators
+    robustness_figure(out_dir / "robustness", [{"pattern": f"robustness_{m}/*/metrics.csv", "method": m} for m in STYLE],
+                      [("seen", "-"), ("unseen", "--")], [("seen generators", "-"), ("unseen generators", "--")])
+    # effect of training-time augmentation; unseen generators (the harder test set)
+    robustness_figure(out_dir / "robustness_augmentation",
+                      [{"pattern": f"robustness_{m}{aug}/*/metrics.csv", "method": m, "linestyle": ls}
+                       for m in STYLE for aug, ls in [("", "-"), ("_aug", "--")]],
+                      [("unseen", "-")], [("trained on clean images", "-"), ("trained with augmentation", "--")])
     print(f"saved to {out_dir}")
 
 

@@ -38,3 +38,20 @@ def apply(image: Image.Image, condition: str) -> Image.Image:
         return image
     op, param = spec
     return jpeg(image, param) if op == "jpeg" else resize(image, param)
+
+
+# training-time augmentation (`wang2020cnn`: random JPEG + blur; here JPEG + resize, the two operations
+# the robustness test measures). Resize first, then JPEG, as in a typical "edit, then save" pipeline.
+AUG_P, AUG_SCALE, AUG_QUALITY = 0.5, (0.5, 1.5), (30, 100)
+
+
+def random_augment(image: Image.Image, rng) -> tuple[Image.Image, tuple[int, float]]:
+    """Return the augmented image and (jpeg_quality, scale); quality 0 = not recompressed, scale 1 = not resized."""
+    quality, scale = 0, 1.0
+    if rng.random() < AUG_P:
+        scale = float(rng.uniform(*AUG_SCALE))
+        image = resize(image, scale)
+    if rng.random() < AUG_P:
+        quality = int(rng.integers(AUG_QUALITY[0], AUG_QUALITY[1] + 1))
+        image = jpeg(image, quality)
+    return image, (quality, scale)

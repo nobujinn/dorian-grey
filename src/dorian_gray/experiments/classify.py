@@ -9,6 +9,7 @@ The decision threshold is 0.5 on the probe's probability and is never tuned on t
 
 Usage: uv run python -m dorian_gray.experiments.classify --method {a,b} [--seeds 0 1 2 3 4]
        [--groups spectrum periodic residual dct]   (method A only: feature-group ablation)
+       [--train-aug]   (also train on augmented copies, see `prepare --augment`)
 """
 
 import argparse
@@ -61,9 +62,18 @@ def features_matrix(df: pd.DataFrame) -> np.ndarray:
     return np.stack(df["features"].to_numpy()).astype(np.float32)
 
 
-def fit_probe(df: pd.DataFrame, classifier):
-    tr = (df.part == "train").to_numpy()
-    return classifier.fit(features_matrix(df[tr]), df.loc[tr, "label"])
+def fit_probe(df: pd.DataFrame, classifier, augmented: pd.DataFrame | None = None):
+    """Fit on the training split; with `augmented`, also on the augmented copies of the training images."""
+    train = df[df.part == "train"]
+    if augmented is not None:
+        train = pd.concat([train[["features", "label"]], augmented[augmented.part == "train"][["features", "label"]]])
+    return classifier.fit(features_matrix(train), train["label"])
+
+
+def load_augmented(features: str, df: pd.DataFrame) -> pd.DataFrame:
+    """Features of the augmented copies (`prepare --augment`), with the split of `df` attached."""
+    aug = load_cached(f"{features}_aug", sorted(df.shard.unique()))
+    return aug.merge(df[["shard", "row", "label", "part"]], on=["shard", "row"], validate="1:1")
 
 
 def select_groups(df: pd.DataFrame, groups: list[str]) -> list[str]:
@@ -88,7 +98,10 @@ def run(args, seed: int, out) -> dict:
     method = METHODS[args.method]
     df = load_split(method.features, args.holdout, seed)
     names = select_groups(df, args.groups) if args.method == "a" else None
-    probe = fit_probe(df, method.classifier(args.C))
+    augmented = load_augmented(method.features, df) if args.train_aug else None
+    if augmented is not None and names is not None:
+        select_groups(augmented, args.groups)
+    probe = fit_probe(df, method.classifier(args.C), augmented)
     df["p_fake"] = probe.predict_proba(features_matrix(df))[:, 1]
     results = evaluate(df)
 
@@ -128,13 +141,15 @@ def main():
     ap.add_argument("--method", choices=METHODS, required=True)
     ap.add_argument("--groups", nargs="+", default=["spectrum", "periodic", "residual", "dct"],
                     help="method A feature groups to use (ablation)")
+    ap.add_argument("--train-aug", action="store_true",
+                    help="also train on the augmented (resized / recompressed) copies of the training images")
     ap.add_argument("--holdout", type=float, default=0.3, help="fraction of fake generators held out")
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4],
                     help="one split per seed; which generators are held out varies a lot between seeds")
     ap.add_argument("--C", type=float, default=1.0)
     args = ap.parse_args()
 
-    tag = f"method_{args.method}" + ("" if args.method == "b" or len(args.groups) == 4 else "_" + "+".join(args.groups))
+    tag = f"method_{args.method}" + ("" if args.method == "b" or len(args.groups) == 4 else "_" + "+".join(args.groups)) + ("_aug" if args.train_aug else "")
     out = RUNS_DIR / tag / datetime.now().strftime("%Y%m%d-%H%M%S")
     rows = [{"seed": seed, "set": k, **v} for seed in args.seeds
             for k, v in run(args, seed, out / f"seed{seed}").items()]

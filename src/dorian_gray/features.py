@@ -2,6 +2,7 @@
 
 import base64
 import io
+import zlib
 from pathlib import Path
 from typing import Iterator
 
@@ -12,6 +13,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from dorian_gray.config import CACHE_DIR
+from dorian_gray.perturb import random_augment
 
 
 def decode_image(value) -> Image.Image:
@@ -54,23 +56,42 @@ def iter_shard(path: Path, rows: np.ndarray, batch_size: int = 32) -> Iterator[t
         yield pd.DataFrame({"image_name": names}), images
 
 
-def extract_shard(path: Path, embedder, name: str, max_images: int | None = None,
-                  batch_size: int = 32, dtype: str = "float16") -> Path:
-    """Embed (a seeded sample of) a shard once; skip if the cache file already exists."""
-    out = CACHE_DIR / "features" / name / f"{path.stem}.npz"
-    if out.exists():
-        return out
-    names, feats = [], []
+def extract_shard(path: Path, extractors: dict[str, tuple], max_images: int | None = None,
+                  batch_size: int = 32, augment_seed: int | None = None) -> None:
+    """Embed (a seeded sample of) a shard once per extractor; extractors whose cache exists are skipped.
+
+    extractors: cache name -> (callable images -> (N, D) array, storage dtype). Several extractors share
+    one read of the shard, and all of them see exactly the same (possibly augmented) images.
+    augment_seed: if set, every image is first randomly resized / recompressed (`perturb.random_augment`),
+    deterministically per (seed, shard, row); the applied parameters are stored next to the features.
+    """
+    todo = {n: e for n, e in extractors.items() if not (CACHE_DIR / "features" / n / f"{path.stem}.npz").exists()}
+    if not todo:
+        return
     rows = sample_rows(pq.ParquetFile(path).metadata.num_rows, max_images)
+    shard_key = zlib.crc32(path.stem.encode())
+    names, feats, params, pos = [], {n: [] for n in todo}, [], 0
     with tqdm(total=len(rows), desc=path.stem) as bar:
         for meta, images in iter_shard(path, rows, batch_size):
-            feats.append(embedder(images).astype(dtype))
+            if augment_seed is not None:
+                aug = [random_augment(im, np.random.default_rng([augment_seed, shard_key, int(r)]))
+                       for im, r in zip(images, rows[pos:pos + len(images)])]
+                images = [im for im, _ in aug]
+                params.extend(prm for _, prm in aug)
+            pos += len(images)
+            for n, (fn, dtype) in todo.items():
+                feats[n].append(fn(images).astype(dtype))
             names.extend(meta["image_name"].tolist())
             bar.update(len(images))
-    out.parent.mkdir(parents=True, exist_ok=True)
-    # image names repeat within a shard (generators reuse file names), so the row index is the key
-    np.savez(out, row=rows, image_name=np.array(names), features=np.concatenate(feats))
-    return out
+    extra = {}
+    if params:
+        quality, scale = zip(*params)
+        extra = {"jpeg_quality": np.array(quality), "scale": np.array(scale)}
+    for n in todo:
+        out = CACHE_DIR / "features" / n / f"{path.stem}.npz"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        # image names repeat within a shard (generators reuse file names), so the row index is the key
+        np.savez(out, row=rows, image_name=np.array(names), features=np.concatenate(feats[n]), **extra)
 
 
 def load_cached(name: str, shards: list[str]) -> pd.DataFrame:
