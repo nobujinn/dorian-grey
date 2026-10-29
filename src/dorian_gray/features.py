@@ -55,7 +55,7 @@ def iter_shard(path: Path, rows: np.ndarray, batch_size: int = 32) -> Iterator[t
 
 
 def extract_shard(path: Path, embedder, name: str, max_images: int | None = None,
-                  batch_size: int = 32) -> Path:
+                  batch_size: int = 32, dtype: str = "float16") -> Path:
     """Embed (a seeded sample of) a shard once; skip if the cache file already exists."""
     out = CACHE_DIR / "features" / name / f"{path.stem}.npz"
     if out.exists():
@@ -64,7 +64,7 @@ def extract_shard(path: Path, embedder, name: str, max_images: int | None = None
     rows = sample_rows(pq.ParquetFile(path).metadata.num_rows, max_images)
     with tqdm(total=len(rows), desc=path.stem) as bar:
         for meta, images in iter_shard(path, rows, batch_size):
-            feats.append(embedder(images).astype(np.float16))
+            feats.append(embedder(images).astype(dtype))
             names.extend(meta["image_name"].tolist())
             bar.update(len(images))
     out.parent.mkdir(parents=True, exist_ok=True)

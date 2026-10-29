@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from dorian_gray.experiments.prototype_b import split
+from dorian_gray.experiments.classify import split
 from dorian_gray.metrics import binary_metrics
 
 
