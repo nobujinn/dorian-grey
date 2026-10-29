@@ -51,3 +51,6 @@ run reports seen-generator and unseen-generator results separately.
 ```
 uv run pytest
 ```
+
+Findings and result tables: [results/RESULTS.md](results/RESULTS.md)
+(refresh the tables with `uv run python -m dorian_gray.experiments.export`).
