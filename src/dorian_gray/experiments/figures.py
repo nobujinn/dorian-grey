@@ -66,7 +66,8 @@ def robustness_figure(path, series: list[dict], sets: list[tuple[str, str]], lin
     handles = [plt.Line2D([], [], color=STYLE[m]["color"], marker=STYLE[m]["marker"], label=STYLE[m]["label"])
                for m in methods]
     handles += [plt.Line2D([], [], color=MUTED, linestyle=ls, label=label) for label, ls in line_legend]
-    fig.legend(handles=handles, loc="outside upper center", ncol=len(handles), frameon=False, fontsize=8)
+    long = sum(len(h.get_label()) for h in handles) > 70  # wrap long legends to two rows instead of clipping
+    fig.legend(handles=handles, loc="outside upper center", ncol=2 if long else len(handles), frameon=False, fontsize=8)
     for ext in ("pdf", "png"):
         fig.savefig(path.with_suffix(f".{ext}"), dpi=200)
     plt.close(fig)

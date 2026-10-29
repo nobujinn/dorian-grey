@@ -13,7 +13,8 @@ fixed at 0.5 and never tuned on test data.
 | `method_a_<groups>/` | Method A trained on a subset of feature groups (ablation) |
 | `robustness_a/` | Method A under JPEG recompression and resizing, same layout as `robustness_b/` |
 | `robustness_b/` | Method B under JPEG recompression and resizing: `metrics.csv`, `flagged_by_format.csv` |
-| `figures/` | `robustness.pdf` (for LaTeX), `robustness.png` |
+| `method_a_aug/`, `method_b_aug/`, `robustness_a_aug/`, `robustness_b_aug/` | Same experiments with training-time augmentation (section 4) |
+| `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training) |
 
 ---
 
@@ -278,12 +279,88 @@ response is zero on both frequency axes; peaks of purely horizontal or vertical 
 vanish. The periodic group therefore uses a Laplacian residual (2 cos ωx + 2 cos ωy − 4, non-zero
 except at DC). Caught by a unit test with a synthetic period-4 pattern.
 
-## 4. Open issues / next steps
+## 4. Training-time augmentation (29. 10. 2026)
 
-- **Break the JPEG shortcut in training** (both methods): random JPEG recompression of real and fake
-  training images, and/or JPEG fakes from several generators. Then re-measure LFM and the robustness grid.
+`prepare --augment`: one augmented copy of each of the 42,000 images (real and fake alike), cached for
+both methods from the *same* augmented image. Per image, deterministically seeded by (seed 1, shard,
+row): with p = 0.5 bicubic resize by U(0.5, 1.5), then with p = 0.5 JPEG recompression with quality
+U{30..100} (`perturb.random_augment`, after `wang2020cnn`). `classify --train-aug` trains on the clean
+training images **plus** their augmented copies; validation and test sets stay unchanged, so the
+numbers are directly comparable with sections 2 and 3.
+
+**Caveat:** the augmentation uses the same two operations as the robustness test (with continuous
+parameters covering the test values), so 4.3 measures robustness to *known* degradations. Unseen
+operations (blur, noise, other JPEG encoders, re-capture) are not covered yet.
+
+### 4.1 Clean test sets (5 seeds)
+
+| Method | Training | Seen: FPR | Seen: FNR | Seen: AUC | Unseen: FNR | Unseen: AUC |
+|---|---|---|---|---|---|---|
+| A | clean | 0.083 ± 0.019 | 0.082 ± 0.034 | 0.971 ± 0.018 | 0.304 ± 0.137 | 0.832 ± 0.117 |
+| A | + augmentation | 0.109 ± 0.004 | 0.110 ± 0.032 | 0.955 ± 0.016 | 0.279 ± 0.092 | 0.884 ± 0.052 |
+| B | clean | 0.030 ± 0.005 | 0.033 ± 0.007 | 0.996 ± 0.001 | 0.105 ± 0.055 | 0.985 ± 0.008 |
+| B | + augmentation | 0.035 ± 0.005 | 0.037 ± 0.005 | 0.994 ± 0.001 | 0.075 ± 0.024 | 0.989 ± 0.004 |
+
+### 4.2 JPEG shortcut after augmentation (mean over seeds)
+
+| Method | Training | LFM detected, unseen (seeds 0, 2, 4) | LFM detected, seen (seeds 1, 3) | Other unseen LatDiff | Real flagged JPEG / PNG |
+|---|---|---|---|---|---|
+| A | clean | 0.031 | 0.424 | 0.947 | 0.034 / 0.121 |
+| A | + augmentation | 0.220 | 0.360 | 0.913 | 0.059 / 0.148 |
+| B | clean | 0.702 | 0.910 | 0.951 | 0.026 / 0.034 |
+| B | + augmentation | 0.877 | 0.929 | 0.938 | 0.031 / 0.038 |
+
+### 4.3 Robustness (seed 0, same 3,000-image subset as 2.4 / 3.5)
+
+| Condition | A clean: FNR unseen / AUC unseen | A aug: FNR unseen / AUC unseen | B clean: FNR unseen / AUC unseen | B aug: FNR unseen / AUC unseen |
+|---|---|---|---|---|
+| clean | 0.288 / 0.853 | 0.274 / 0.897 | 0.103 / 0.984 | 0.071 / 0.988 |
+| JPEG q95 | 0.686 / 0.786 | 0.539 / 0.846 | 0.268 / 0.967 | 0.145 / 0.979 |
+| JPEG q85 | 0.908 / 0.669 | 0.617 / 0.805 | 0.354 / 0.946 | 0.186 / 0.966 |
+| JPEG q75 | 0.942 / 0.606 | 0.591 / 0.794 | 0.418 / 0.945 | 0.256 / 0.962 |
+| JPEG q50 | 0.968 / 0.588 | 0.524 / 0.804 | 0.585 / 0.905 | 0.228 / 0.949 |
+| resize ×0.5 | 0.137 / 0.780 | 0.169 / 0.802 | 0.038 / 0.969 | 0.031 / 0.977 |
+| resize ×0.75 | 0.243 / 0.815 | 0.232 / 0.844 | 0.032 / 0.987 | 0.028 / 0.990 |
+| resize ×1.5 | 0.095 / 0.616 | 0.113 / 0.691 | 0.042 / 0.971 | 0.026 / 0.981 |
+
+FPR (real images flagged fake):
+
+| Condition | A clean | A aug | B clean | B aug |
+|---|---|---|---|---|
+| clean | 0.055 | 0.088 | 0.034 | 0.045 |
+| JPEG q95 / q75 / q50 | 0.012 / 0.008 / 0.001 | 0.057 / 0.080 / 0.095 | 0.017 / 0.010 / 0.015 | 0.031 / 0.026 / 0.061 |
+| resize ×0.5 / ×0.75 / ×1.5 | 0.587 / 0.278 / 0.754 | 0.432 / 0.234 / 0.726 | 0.162 / 0.092 / 0.192 | 0.168 / 0.072 / 0.148 |
+
+Seen-generator FNR, B: q75 0.390 → 0.218, q50 0.462 → 0.153; A: q85 0.870 → 0.486, q50 0.978 → 0.364.
+
+![Effect of augmentation](figures/robustness_augmentation.png)
+
+**Findings**
+- **Method B: augmentation is close to free and clearly helps.** On clean data it costs +0.005 FPR and
+  +0.004 FNR on seen generators, but improves unseen generators (FNR 0.105 → 0.075, seed spread
+  0.055 → 0.024). The JPEG shortcut is largely broken: the held-out JPEG generator LFM is now detected
+  at 0.877 (was 0.702). Under JPEG recompression the miss rate roughly halves (unseen q75 0.418 → 0.256,
+  q50 0.585 → 0.228) and AUC stays ≥ 0.949. Resizing still raises FPR (×0.5: 0.168, ×1.5: 0.148) almost
+  as much as before: a linear probe on CLIP features does not become resize-invariant from these
+  examples.
+- **Method A: augmentation helps under JPEG but is not enough.** JPEG no longer makes Method A call
+  everything real (unseen FNR at q85 0.908 → 0.617; AUC at q75 0.606 → 0.794), and held-out LFM rises
+  from 0.031 to 0.220. But clean performance drops (seen AUC 0.971 → 0.955, FPR 0.083 → 0.109), FNR under
+  JPEG stays at 0.5–0.6, and resizing still flags most real images (×1.5: 0.726). The same hand-crafted
+  statistics measure both generation traces and compression/interpolation traces, and a **linear**
+  classifier cannot separate the two. Next to try: a non-linear classifier for Method A (gradient
+  boosting, as planned in PLAN.md) on the same augmented features.
+- Overall ranking unchanged: B > A on every condition, with and without augmentation; the gap is
+  largest under post-processing. For the thesis this supports the expected trade-off: Method A is
+  interpretable but fragile, Method B is robust but a black-box representation.
+
+## 5. Open issues / next steps
+
+- Non-linear classifier for Method A (gradient boosting) on clean + augmented features.
+- Robustness to operations *not* used in training (blur, noise, other JPEG encoder), to test 4.3 fairly.
+- JPEG fakes from several generators, so the shortcut can also be measured without augmentation.
 - Control the grayscale bias (3.6).
-- Train-time resize augmentation for Method B; calibration (reliability diagram, ECE).
+- Resize-induced FPR of Method B (4.3); calibration (reliability diagram, ECE).
 - Tune C on the validation set (currently fixed at 1).
 - Per-group aggregation of Method A's per-image explanation.
 - Face swap (FF++ face crops) and local manipulation with localisation (CASIA / IMD2020 masks).
