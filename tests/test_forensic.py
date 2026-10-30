@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from dorian_gray.methods.forensic import (GROUPS, ForensicFeatures, explain, feature_group,
-                                          image_features, make_boosting, make_classifier)
+from dorian_gray.methods.forensic import (GROUPS, ForensicFeatures, contributions, explain, explain_groups,
+                                          feature_group, image_features, make_boosting, make_classifier)
 from dorian_gray.perturb import jpeg
 
 
@@ -55,3 +55,16 @@ def test_boosting_learns_interaction_linear_model_cannot():
     tr, te = slice(0, 3000), slice(3000, None)
     acc = lambda clf: (clf.fit(X[tr], y[tr]).predict(X[te]) == y[te]).mean()
     assert acc(make_classifier()) < 0.6 < 0.9 < acc(make_boosting())
+
+
+@pytest.mark.parametrize("factory", [make_classifier, make_boosting])
+def test_contributions_sum_to_log_odds(factory):
+    pytest.importorskip("shap")
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(600, 4))
+    clf = factory().fit(X, (X[:, 0] + X[:, 1] * X[:, 2] > 0).astype(int))
+    c = contributions(clf, X[:20])
+    log_odds = clf.decision_function(X[:20])
+    assert c.shape == (20, 4) and np.ptp(log_odds - c.sum(1)) < 1e-4  # contributions + constant baseline
+    names = ["spec_a", "peak_b", "res_c", "dct_d"]
+    assert np.allclose(sum(explain_groups(c, names).values()), c.sum(1))

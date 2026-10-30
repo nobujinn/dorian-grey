@@ -41,3 +41,17 @@ def test_random_augment_is_deterministic_and_in_range():
     qualities, scales = zip(*params)
     assert all(q == 0 or 30 <= q <= 100 for q in qualities) and all(0.5 <= s <= 1.5 for s in scales)
     assert 0.35 < np.mean([q > 0 for q in qualities]) < 0.65 and 0.35 < np.mean([s != 1 for s in scales]) < 0.65
+
+
+def test_unseen_operations():
+    im = _image("RGB")
+    assert apply(im, "webp75").format == "WEBP" and apply(im, "webp75").size == im.size
+    blurred = np.asarray(apply(im, "blur1"), float)
+    assert np.abs(np.diff(blurred, axis=1)).mean() < np.abs(np.diff(np.asarray(im, float), axis=1)).mean()
+    noisy = np.asarray(apply(im, "noise3"), float) - np.asarray(im, float)
+    assert 1.5 < noisy.std() < 4 and np.array_equal(apply(im, "noise3"), apply(im, "noise3"))  # seeded
+
+
+def test_social_chains_resize_and_jpeg():
+    out = apply(_image("RGB"), "social")
+    assert out.size == (72, 48) and out.format == "JPEG"

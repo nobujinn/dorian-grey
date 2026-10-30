@@ -3,8 +3,10 @@
 Running log of experiments and findings. Every number here comes from a run in this repository;
 the tables next to this file are exported from `runs/` with
 `uv run python -m dorian_gray.experiments.export`. Label convention: 1 = fake (positive class).
-FPR = real images flagged as fake, FNR = fake images passed as real. The decision threshold is
-fixed at 0.5 and never tuned on test data.
+FPR = real images flagged as fake, FNR = fake images passed as real. Sections 1–5 use the fixed
+decision threshold 0.5; from section 6 on, results are also reported at the threshold that flags 5 %
+of the *validation* reals (`val_fpr5`). Neither is tuned on test data. `summary.csv` files of runs
+from 30. 10. 2026 on have a `threshold` column with both.
 
 | Folder | Content |
 |---|---|
@@ -15,7 +17,8 @@ fixed at 0.5 and never tuned on test data.
 | `robustness_b/` | Method B under JPEG recompression and resizing: `metrics.csv`, `flagged_by_format.csv` |
 | `method_a_aug/`, `method_b_aug/`, `robustness_a_aug/`, `robustness_b_aug/` | Same experiments with training-time augmentation (section 4) |
 | `method_a_gbt/`, `method_a_gbt_aug/`, `robustness_a_gbt/`, `robustness_a_gbt_aug/` | Method A with gradient-boosted trees instead of logistic regression (section 5) |
-| `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training), `robustness_classifier.pdf/.png` (A linear vs. A trees vs. B, augmented training) |
+| `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
+| `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training), `robustness_classifier.pdf/.png` (A linear vs. A trees vs. B, augmented training), `robustness_unseen_ops.pdf/.png` (operations not used in training, section 8) |
 
 ---
 
@@ -426,10 +429,10 @@ Seen-generator FNR, trees aug: q85 0.366, q75 0.446, q50 0.316 (LR aug: 0.486 / 
   0.726 → 0.245, ×0.75 0.234 → 0.098. With augmented examples, trees can learn "interpolation
   traces → not evidence of generation" as a separate rule; a single hyperplane could not.
 - **JPEG remains Method A's weak point.** Even trees + aug miss 0.45–0.64 of unseen fakes under JPEG
-  (q95–q50). AUC stays 0.83–0.90, so part of this is a shifted operating point (scores of recompressed
-  fakes fall below 0.5 but still above most reals) rather than lost information; a threshold chosen
-  for a fixed FPR would recover some of it. The unseen-generator FNR on clean images (0.261 at
-  AUC 0.943) shows the same pattern.
+  (q95–q50), although AUC stays 0.83–0.90. *Correction (section 6):* I first attributed this to a
+  shifted operating point. At a threshold set for 5 % validation FPR the miss rate barely changes
+  (q75 0.637 → 0.601), so it is not a threshold problem. AUC averages over the whole ROC curve, while
+  the low-FPR region that matters for a detector is where Method A is weak.
 - **Interpretability cost.** The logistic regression gives exact per-image explanations
   (coefficient × standardised value, 3.4). Trees do not; an explanation would need TreeSHAP or
   grouped permutation importance. For the framework this is a design choice: LR for the
@@ -437,16 +440,200 @@ Seen-generator FNR, trees aug: q85 0.366, q75 0.446, q50 0.316 (LR aug: 0.486 / 
 - Ranking by unseen AUC: B + aug > A trees + aug > A LR + aug in every condition of 5.3. At the fixed
   0.5 threshold the picture is mixed: trees have the lowest FPR of all variants on clean images
   (0.026 vs. B 0.045 on this subset) but a *higher* unseen FNR than LR under resizing (×1.5: 0.176 vs.
-  0.113) and at q75 (0.637 vs. 0.591), again an operating-point effect.
+  0.113) and at q75 (0.637 vs. 0.591).
 
-## 6. Open issues / next steps
+## 6. Operating point: threshold for 5 % FPR on validation data (30. 10. 2026)
 
-- Explanation for the tree model (TreeSHAP or grouped permutation importance), or keep LR for explanations.
-- Decision threshold: 0.5 vs. a threshold for a fixed validation FPR (5.3 shows shifted scores under JPEG).
-- Robustness to operations *not* used in training (blur, noise, other JPEG encoder), to test 4.3 fairly.
+`classify` and `robustness` now also report every metric at the threshold that flags 5 % of the
+**validation** reals (`metrics.threshold_at_fpr`, `TARGET_FPR = 0.05`). At 0.5 the methods run at
+different FPRs (B 0.030, A 0.083), so FNR at 0.5 mixes detection ability with how conservative each
+classifier happens to be. At a common FPR the FNR is directly comparable. All runs were repeated; the
+numbers at 0.5 are identical to sections 2–5 (the pipeline is deterministic).
+
+### 6.1 Clean test sets at 5 % validation FPR (5 seeds)
+
+| Method | Training | Test FPR | Seen: FNR | Unseen: FNR | Unseen FNR at 0.5 (for comparison) |
+|---|---|---|---|---|---|
+| A, logistic regression | clean | 0.049 ± 0.007 | 0.134 ± 0.067 | 0.367 ± 0.090 | 0.304 (at FPR 0.083) |
+| A, logistic regression | + aug | 0.050 ± 0.005 | 0.227 ± 0.041 | 0.404 ± 0.063 | 0.279 (at FPR 0.109) |
+| A, boosted trees | clean | 0.046 ± 0.002 | 0.035 ± 0.032 | 0.283 ± 0.177 | 0.304 (at FPR 0.038) |
+| A, boosted trees | + aug | 0.048 ± 0.003 | 0.053 ± 0.035 | 0.275 ± 0.125 | 0.276 (at FPR 0.050) |
+| B | clean | 0.050 ± 0.002 | 0.019 ± 0.007 | 0.074 ± 0.043 | 0.105 (at FPR 0.030) |
+| B | + aug | 0.050 ± 0.005 | 0.027 ± 0.005 | 0.059 ± 0.022 | 0.075 (at FPR 0.035) |
+
+### 6.2 Robustness at 5 % validation FPR (seed 0; threshold fixed from clean validation data)
+
+| Condition | A LR + aug: FPR / FNR unseen | A trees + aug: FPR / FNR unseen | B + aug: FPR / FNR unseen |
+|---|---|---|---|
+| clean | 0.034 / 0.416 | 0.036 / 0.245 | 0.055 / 0.055 |
+| JPEG q95 | 0.019 / 0.695 | 0.052 / 0.405 | 0.045 / 0.111 |
+| JPEG q85 | 0.027 / 0.738 | 0.072 / 0.539 | 0.051 / 0.150 |
+| JPEG q75 | 0.032 / 0.721 | 0.052 / 0.601 | 0.032 / 0.217 |
+| JPEG q50 | 0.040 / 0.682 | 0.096 / 0.490 | 0.077 / 0.181 |
+| resize ×0.5 | 0.171 / 0.365 | 0.312 / 0.161 | 0.199 / 0.022 |
+| resize ×0.75 | 0.083 / 0.421 | 0.121 / 0.237 | 0.099 / 0.023 |
+| resize ×1.5 | 0.509 / 0.254 | 0.308 / 0.139 | 0.197 / 0.018 |
+
+(All six configurations, both thresholds: `robustness_*/metrics.csv`, column `threshold`.)
+
+**Findings**
+- **The validation threshold transfers to the test set:** test FPR 0.046–0.050 for every
+  configuration (same distribution of real images).
+- **At equal FPR the gap between the methods is larger than at 0.5.** Unseen FNR: B + aug 0.059 vs.
+  A trees + aug 0.275 (4.7×). B profits from the higher FPR (0.030 → 0.050) because its scores separate
+  the classes well at low FPR; A does not.
+- **Comparisons at 0.5 can mislead.** For the linear Method A, augmentation looked helpful on unseen
+  generators at 0.5 (FNR 0.304 → 0.279, section 4.1), but that point ran at FPR 0.109 vs. 0.083. At an
+  equal 5 % FPR augmentation makes it *worse* (0.367 → 0.404), although unseen AUC rises (0.832 → 0.884):
+  the ROC curves cross, and augmentation only helps the linear model at higher FPR. For the trees and
+  for B, augmentation helps or is neutral at both operating points. From here on, comparisons between
+  methods use the equal-FPR numbers.
+- **Method A's JPEG weakness is not a threshold problem** (correction of section 5): trees + aug at
+  q75 miss 0.601 at 5 % FPR vs. 0.637 at 0.5.
+- **A threshold set on clean data cannot hold its FPR under resizing** (B + aug: 0.20 at ×0.5 and
+  ×1.5; A trees + aug: 0.31). The operating point itself shifts with post-processing, so a deployed
+  detector needs either resize-invariant scores or a threshold/calibration fitted on degraded
+  validation images.
+
+## 7. Explanations of Method A: contributions per feature group (30. 10. 2026)
+
+`forensic.contributions` gives, for each image, the contribution of every feature to the log-odds of
+"fake": coefficient × standardised value for logistic regression, and **TreeSHAP** values
+(`lundberg2020local`, package `shap`) for boosted trees. Both are additive: summed over features plus
+a constant baseline they give the model's log-odds exactly (unit test), so they can also be summed
+per feature group (`forensic.explain_groups`). `experiments/explain.py` averages them over 1,000 test
+images per image group (seed 0, LFM held out; TreeSHAP for 5,000 images takes ~1 min on CPU).
+
+### 7.1 Mean contribution to the log-odds of "fake" per feature group
+
+Boosted trees + augmentation (baseline −0.59):
+
+| Images | Flagged fake | Log-odds | Spectrum | Periodic | Residual | DCT |
+|---|---|---|---|---|---|---|
+| real JPEG | 0.028 | −4.34 | −0.62 | −0.13 | **−2.27** | −0.73 |
+| real PNG | 0.036 | −4.77 | −1.32 | −0.16 | −0.45 | **−2.26** |
+| fake, seen generators | 0.959 | +4.50 | +0.97 | +0.24 | **+2.48** | +1.39 |
+| fake, unseen generators (without LFM) | 0.890 | +3.64 | +0.61 | +0.90 | **+1.87** | +0.84 |
+| LFM (JPEG fakes, unseen) | 0.172 | −2.05 | −0.01 | −0.07 | **−1.71** | +0.32 |
+
+Logistic regression, clean training (baseline −1.50):
+
+| Images | Flagged fake | Log-odds | Spectrum | Periodic | Residual | DCT |
+|---|---|---|---|---|---|---|
+| real JPEG | 0.012 | −8.01 | −0.08 | −0.14 | **−8.09** | +1.80 |
+| real PNG | 0.114 | −4.05 | −0.17 | −0.11 | **−2.11** | −0.16 |
+| fake, seen generators | 0.948 | +4.19 | +0.21 | +0.15 | **+6.19** | −0.85 |
+| fake, unseen generators (without LFM) | 0.876 | +3.64 | −0.07 | +0.50 | **+5.64** | −0.93 |
+| LFM (JPEG fakes, unseen) | 0.045 | −7.92 | −0.13 | −0.06 | −2.76 | **−3.47** |
+
+Largest single features for LFM, trees: `rgb_corr_rg` −0.61, `cooc_d1h_-1_1` −0.37,
+`cooc_d1h_1_-1` −0.27 (real JPEG: `rgb_corr_rg` −0.82, `cooc_d1h_-1_1` −0.38).
+
+### 7.2 Why JPEG fakes look real: chroma subsampling
+
+The top "real" feature for LFM is `rgb_corr_rg`, the correlation of the R and G noise residuals,
+intended as a demosaicing (camera) cue. Median per image group (all 42,000 images): real JPEG 0.994,
+LFM 0.990, real PNG 0.982, other fakes (PNG) 0.922. Controlled test on 150 randomly drawn fake PNGs,
+re-encoded with Pillow:
+
+| Encoding of the same 150 fake PNGs | Median `rgb_corr_rg` |
+|---|---|
+| original PNG | 0.927 |
+| JPEG q95, 4:4:4 (no chroma subsampling) | 0.936 |
+| JPEG q95, 4:2:0 (chroma subsampling, the default) | 0.981 |
+
+**Findings**
+- **The explanations recover the shortcut mechanism without any information about file format.**
+  The trees call LFM fakes real for the same reason as real JPEG photos: the noise-residual group
+  (−1.71 vs. −2.27), led by inter-channel residual correlation and co-occurrences. The controlled test
+  shows the cause is **4:2:0 chroma subsampling**, not JPEG quantisation as such. Subsampled chroma
+  makes the high-frequency residual nearly identical in R, G and B, which is what a camera's
+  demosaicing also does, so the "camera" cue fires. This explains section 3.3: removing the DCT group
+  cannot remove the shortcut, because it lives in the residual group.
+- The two classifiers explain differently. Trees: real PNGs are recognised mainly by DCT and spectrum,
+  real JPEGs by residuals; for LFM the DCT group still points slightly to fake (+0.32) and is outvoted.
+  Logistic regression relies on the residual group for almost everything (±5–8 log-odds); its DCT
+  contributions for LFM are strongly negative (−3.47). Linear contributions of correlated features
+  partly cancel (e.g. `spec_r21` vs. `spec_r23`, section 3.4), so the TreeSHAP group sums are the
+  more stable explanation.
+- For the framework: per-group sums give a short human-readable explanation ("noise residual: strongly
+  real-like, DCT: slightly fake-like"), and the top features give the detail. A fix to test later is a
+  chroma-independent residual cue (e.g. residual correlation computed only where chroma is not
+  subsampled, or features computed after converting every image to 4:2:0).
+
+## 8. Robustness to operations not used in training (30. 10. 2026)
+
+Training-time augmentation (section 4) used exactly the two operations of the robustness test, so
+4.3 / 6.2 only measure robustness to *known* degradations. Four new conditions in `perturb.CONDITIONS`,
+same 3,000-image subset (seed 0):
+
+| Condition | Operation | Seen in augmentation? |
+|---|---|---|
+| `blur1` | Gaussian blur, σ = 1 px | no |
+| `noise3` | additive Gaussian noise, σ = 3 (0–255 scale), seeded per image | no |
+| `webp75` | lossy WebP, quality 75 (4×4 transform blocks, intra prediction, deblocking filter) | no (different codec) |
+| `social` | resize ×0.75, then JPEG q80 | both steps yes, but not chained in one image's test |
+
+### 8.1 Results at 5 % validation FPR (threshold from clean validation data)
+
+FPR / FNR on unseen generators:
+
+| Condition | A LR, clean | A LR + aug | A trees, clean | A trees + aug | B, clean | B + aug |
+|---|---|---|---|---|---|---|
+| clean | 0.031 / 0.331 | 0.034 / 0.416 | 0.038 / 0.268 | 0.036 / 0.245 | 0.061 / 0.077 | 0.055 / 0.055 |
+| blur σ = 1 | 0.907 / 0.026 | 0.867 / 0.042 | 0.920 / 0.005 | 0.874 / 0.009 | 0.614 / 0.009 | 0.419 / 0.021 |
+| noise σ = 3 | 0.047 / 0.733 | 0.121 / 0.531 | 0.492 / 0.093 | 0.425 / 0.126 | 0.253 / 0.049 | 0.197 / 0.053 |
+| WebP q75 | 0.040 / 0.885 | 0.007 / 0.941 | 0.041 / 0.884 | 0.067 / 0.608 | 0.121 / 0.220 | 0.145 / 0.119 |
+| ×0.75 + JPEG q80 | 0.013 / 0.959 | 0.034 / 0.739 | 0.010 / 0.942 | 0.110 / 0.504 | 0.026 / 0.335 | 0.050 / 0.121 |
+
+AUC on unseen generators:
+
+| Condition | A LR, clean | A LR + aug | A trees, clean | A trees + aug | B, clean | B + aug |
+|---|---|---|---|---|---|---|
+| clean | 0.853 | 0.897 | 0.869 | 0.943 | 0.984 | 0.988 |
+| blur σ = 1 | 0.708 | 0.701 | 0.785 | 0.772 | 0.940 | 0.950 |
+| noise σ = 3 | 0.714 | 0.790 | 0.832 | 0.837 | 0.951 | 0.961 |
+| WebP q75 | 0.694 | 0.749 | 0.718 | 0.819 | 0.916 | 0.943 |
+| ×0.75 + JPEG q80 | 0.510 | 0.793 | 0.657 | 0.814 | 0.944 | 0.971 |
+
+At threshold 0.5 the picture is the same (`robustness_*/metrics.csv`); e.g. blur FPR: A LR 0.938,
+A trees 0.896, B 0.467, B + aug 0.341.
+
+![Operations not used in training](figures/robustness_unseen_ops.png)
+
+**Findings**
+- **Blur is the worst case for every detector, and it fails in the "real looks fake" direction.**
+  σ = 1 px makes Method A flag 87–92 % of real photos (all four variants; 84–95 % at threshold 0.5),
+  Method B 61 % (clean) and 42 % (with augmentation). Blur removes the fine sensor noise that all detectors use as evidence of a
+  camera, so a slightly soft real photo looks "too clean". Augmentation does not help Method A at all
+  here and only partly helps B. A detector deployed online would raise many false alarms on soft or
+  smoothed photos (e.g. beauty filters, denoising in phone cameras).
+- **Noise reveals that the two Method A classifiers learned different rules.** The linear model
+  treats added noise as camera evidence and misses fakes (FNR 0.733). The trees treat it as an
+  anomaly and flag real photos (FPR 0.492). Method B is mildly affected (FPR 0.20–0.25).
+- **JPEG augmentation partly transfers to an unseen codec.** WebP q75: B + aug misses 0.119 (B clean
+  0.220), A trees + aug 0.608 (clean 0.884). The linear A does not profit (0.941).
+- **The chained "social" pipeline** (two known operations together) behaves like the stronger of the
+  two: B + aug 0.121 missed at FPR 0.050 (B clean 0.335), A trees + aug 0.504.
+- **Ranking unchanged:** by unseen AUC, both B variants beat every Method A variant on every
+  operation, and B + aug ≥ B everywhere. B keeps AUC ≥ 0.916 under every condition; Method A drops to
+  0.51–0.84. Within Method A, augmentation does not help under blur (trees 0.785 → 0.772). The augmentation result of 4.3 is
+  therefore not only "learning the test": it carries over to related operations (WebP, chained), but
+  not to operations of a different kind (blur, noise).
+- Overall conclusion on robustness: Method A's evidence is the high-frequency residual, which every
+  ordinary operation changes, in either direction (blur and resizing → "fake", compression and
+  noise → "real"). Method B's scores shift too, but it keeps its ranking ability (AUC ≥ 0.916), so a
+  large part of its errors is a shifted operating point, which a threshold or calibration fitted on
+  degraded validation images could reduce (to be tested).
+
+## 9. Open issues / next steps
+
 - JPEG fakes from several generators, so the shortcut can also be measured without augmentation.
+- Chroma-independent residual features for Method A (7.2), to remove the chroma-subsampling shortcut.
 - Control the grayscale bias (3.6).
-- Resize-induced FPR of Method B (4.3); calibration (reliability diagram, ECE).
-- Tune C on the validation set (currently fixed at 1).
-- Per-group aggregation of Method A's per-image explanation.
+- Threshold / calibration under post-processing: a threshold set on clean data does not hold its FPR
+  under resizing and blur (6.2, 8.1); calibration (reliability diagram, ECE), possibly on degraded validation images.
+- Tune C (LR) and the tree hyper-parameters on the validation set (augmented tree runs hit the
+  1000-iteration cap, section 5).
+- Patch heatmap explanation for Method B.
 - Face swap (FF++ face crops) and local manipulation with localisation (CASIA / IMD2020 masks).

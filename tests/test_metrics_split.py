@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from dorian_gray.experiments.classify import split
-from dorian_gray.metrics import binary_metrics
+from dorian_gray.metrics import binary_metrics, threshold_at_fpr
 
 
 def test_binary_metrics_counts():
@@ -37,3 +37,10 @@ def test_split_holds_out_whole_generators():
 def test_split_is_deterministic():
     df = _toy_frame()
     assert split(df, 0.3, seed=1).equals(split(df, 0.3, seed=1))
+
+
+def test_threshold_at_fpr_bounds_validation_fpr():
+    p = np.random.default_rng(0).random(1000)
+    for target in (0.01, 0.05, 0.2):
+        t = threshold_at_fpr(p, target)
+        assert target - 0.002 <= (p >= t).mean() <= target

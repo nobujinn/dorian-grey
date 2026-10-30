@@ -7,9 +7,11 @@ Selection rationale (from the manifest, 28. 10. 2026):
     including mixed shards with many generators, for a held-out-generator test.
 Both methods use the same shards and the same seeded rows, so A and B are compared on identical images.
 
-Usage: uv run python -m dorian_gray.experiments.prepare --method a b [--augment]
+Usage: uv run python -m dorian_gray.experiments.prepare --method a b [--augment] [--normalize jpeg75]
   --augment caches features of one randomly resized / recompressed copy of every image
   (cache name <features>_aug), used as extra training data by `classify --train-aug`.
+  --normalize re-encodes every image with one `perturb.CONDITIONS` operation before extraction
+  (cache name <features>_norm-<condition>), used by `classify --input <condition>`.
 """
 
 import argparse
@@ -19,6 +21,7 @@ import pandas as pd
 from dorian_gray.data.community_forensics import LOCAL_DIR, download_shards
 from dorian_gray.features import extract_shard
 from dorian_gray.methods import METHODS
+from dorian_gray.perturb import CONDITIONS
 
 REAL_SHARDS = [
     "HFCF_small_117.parquet", "HFCF_small_125.parquet", "HFCF_small_133.parquet", "HFCF_small_141.parquet",  # JPEG, small
@@ -48,17 +51,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--method", choices=METHODS, nargs="+", required=True)
     ap.add_argument("--augment", action="store_true")
+    ap.add_argument("--normalize", choices=[c for c in CONDITIONS if c != "clean"])
     args = ap.parse_args()
 
     manifest = pd.read_parquet(LOCAL_DIR / "manifest.parquet")
     sizes = manifest.groupby("shard").shard_bytes.first()
     print(f"{len(REAL_SHARDS) + len(FAKE_SHARDS)} shards, {sizes[REAL_SHARDS + FAKE_SHARDS].sum() / 1e9:.1f} GB")
     paths = download_shards(REAL_SHARDS + FAKE_SHARDS)
-    suffix = "_aug" if args.augment else ""
+    suffix = ("_aug" if args.augment else "") + (f"_norm-{args.normalize}" if args.normalize else "")
     extractors = {METHODS[m].features + suffix: (METHODS[m].extractor(), METHODS[m].cache_dtype) for m in args.method}
     for path in paths:
         extract_shard(path, extractors, MAX_REAL if path.name in REAL_SHARDS else MAX_FAKE,
-                      augment_seed=AUGMENT_SEED if args.augment else None)
+                      augment_seed=AUGMENT_SEED if args.augment else None, normalize=args.normalize)
 
 
 if __name__ == "__main__":

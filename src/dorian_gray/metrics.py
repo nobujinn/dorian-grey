@@ -24,3 +24,15 @@ def binary_metrics(y_true: np.ndarray, p_fake: np.ndarray, threshold: float = 0.
     }
     out["auc"] = float(roc_auc_score(y_true, p_fake)) if real.any() and fake.any() else float("nan")
     return out
+
+
+def threshold_at_fpr(p_real: np.ndarray, target: float) -> float:
+    """Smallest threshold at which at most `target` of the given real images are flagged fake.
+
+    Chosen on validation reals only, so test sets never influence it. Compared with the fixed 0.5,
+    it puts every method at the same false-positive rate, the operating point a deployed detector
+    would be set to; FNR at that point is then directly comparable between methods.
+    """
+    p = np.sort(np.asarray(p_real, dtype=float))[::-1]
+    k = int(np.floor(target * len(p)))  # number of reals allowed above the threshold
+    return float(np.nextafter(p[k], np.inf)) if k < len(p) else float(p[-1])

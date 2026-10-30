@@ -1,0 +1,6 @@
+{
+  "run": "method_a_gbt_aug",
+  "seed": 0,
+  "n": 1000,
+  "model_run": "20261030-185726"
+}

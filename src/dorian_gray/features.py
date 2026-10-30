@@ -13,7 +13,7 @@ from PIL import Image
 from tqdm import tqdm
 
 from dorian_gray.config import CACHE_DIR
-from dorian_gray.perturb import random_augment
+from dorian_gray.perturb import apply, random_augment
 
 
 def decode_image(value) -> Image.Image:
@@ -57,13 +57,15 @@ def iter_shard(path: Path, rows: np.ndarray, batch_size: int = 32) -> Iterator[t
 
 
 def extract_shard(path: Path, extractors: dict[str, tuple], max_images: int | None = None,
-                  batch_size: int = 32, augment_seed: int | None = None) -> None:
+                  batch_size: int = 32, augment_seed: int | None = None, normalize: str | None = None) -> None:
     """Embed (a seeded sample of) a shard once per extractor; extractors whose cache exists are skipped.
 
     extractors: cache name -> (callable images -> (N, D) array, storage dtype). Several extractors share
     one read of the shard, and all of them see exactly the same (possibly augmented) images.
     augment_seed: if set, every image is first randomly resized / recompressed (`perturb.random_augment`),
     deterministically per (seed, shard, row); the applied parameters are stored next to the features.
+    normalize: a `perturb.CONDITIONS` name applied to every image first (input normalisation, e.g.
+    re-encoding every image as JPEG so that real and fake images share one compression history).
     """
     todo = {n: e for n, e in extractors.items() if not (CACHE_DIR / "features" / n / f"{path.stem}.npz").exists()}
     if not todo:
@@ -73,6 +75,8 @@ def extract_shard(path: Path, extractors: dict[str, tuple], max_images: int | No
     names, feats, params, pos = [], {n: [] for n in todo}, [], 0
     with tqdm(total=len(rows), desc=path.stem) as bar:
         for meta, images in iter_shard(path, rows, batch_size):
+            if normalize is not None:
+                images = [apply(im, normalize) for im in images]
             if augment_seed is not None:
                 aug = [random_augment(im, np.random.default_rng([augment_seed, shard_key, int(r)]))
                        for im, r in zip(images, rows[pos:pos + len(images)])]

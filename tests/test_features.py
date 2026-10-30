@@ -39,3 +39,15 @@ def test_extract_shard_rows_features_and_augmentation(tmp_path, monkeypatch):
     assert (a["jpeg_quality"] > 0).any() and (a["scale"] != 1).any()
     # augmentation keeps a flat image roughly flat: still identifiable by its gray level
     assert np.abs(a["features"][:, 0] - a["row"]).max() < 2
+
+
+def test_extract_shard_normalize_reencodes_every_image(tmp_path, monkeypatch):
+    monkeypatch.setattr(features, "CACHE_DIR", tmp_path / "cache")
+    shard = tmp_path / "HFCF_small_test.parquet"
+    _shard(shard)
+    seen = []
+    def record(images):
+        seen.extend(im.format for im in images)
+        return _mean_gray(images)
+    features.extract_shard(shard, {"norm": (record, "float32")}, max_images=10, batch_size=4, normalize="jpeg75")
+    assert seen == ["JPEG"] * 10

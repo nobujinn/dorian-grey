@@ -176,9 +176,29 @@ def make_boosting(C: float = 1.0):
                                           class_weight="balanced", random_state=0)
 
 
+def contributions(classifier, X: np.ndarray) -> np.ndarray:
+    """Per-feature contributions to the log-odds of "fake", shape (N, D); they sum to the model's
+    log-odds minus a baseline, so they can also be summed per feature group.
+
+    Logistic regression: coef * standardised value (baseline = the average training image).
+    Boosted trees: TreeSHAP values (`lundberg2020local`), exact Shapley values of the tree
+    ensemble (baseline = the expected log-odds over the training data)."""
+    X = np.atleast_2d(X)
+    if hasattr(classifier, "steps"):
+        scaler, lr = classifier[0], classifier[-1]
+        return lr.coef_[0] * scaler.transform(X)
+    import shap  # only needed for the tree model
+    return np.asarray(shap.TreeExplainer(classifier).shap_values(X))
+
+
 def explain(classifier, x: np.ndarray, names: list[str], k: int = 5) -> list[tuple[str, float]]:
-    """Top-k features by contribution to the log-odds of "fake" for one image (coef * standardised value)."""
-    scaler, lr = classifier[0], classifier[-1]
-    contrib = lr.coef_[0] * scaler.transform(x.reshape(1, -1))[0]
+    """Top-k features by contribution to the log-odds of "fake" for one image."""
+    contrib = contributions(classifier, x)[0]
     order = np.argsort(-np.abs(contrib))[:k]
     return [(names[i], float(contrib[i])) for i in order]
+
+
+def explain_groups(contrib: np.ndarray, names: list[str]) -> dict[str, np.ndarray]:
+    """Contributions summed per feature group (GROUPS): "the spectrum pushed towards fake by +1.2"."""
+    groups = np.array([feature_group(n) for n in names])
+    return {g: contrib[..., groups == g].sum(-1) for g in GROUPS}

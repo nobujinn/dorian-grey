@@ -2,10 +2,12 @@
 
 A fixed, seeded subset of test images (n real, n fakes of seen generators, n fakes of unseen
 generators) is perturbed with every condition in `perturb.CONDITIONS`, re-embedded, and scored by
-the classifier trained on clean images. The threshold stays at 0.5, so a shift of the score
-distribution shows up directly as a change in FPR / FNR.
+the classifier trained on clean images. The thresholds (0.5, and 5 % FPR on the clean validation
+reals, see `classify`) stay fixed, so a shift of the score distribution shows up directly as a
+change in FPR / FNR.
 
-Features are cached per shard with all conditions in one file, so an interrupted run resumes.
+Features are cached per shard with all conditions in one file, so an interrupted run resumes; conditions
+added to `perturb.CONDITIONS` later are computed and appended to the existing files.
 Usage: uv run python -m dorian_gray.experiments.robustness --method {a,b} [--n 1000] [--train-aug]
 """
 
@@ -20,7 +22,8 @@ from tqdm import tqdm
 
 from dorian_gray.config import CACHE_DIR, RUNS_DIR
 from dorian_gray.data.community_forensics import LOCAL_DIR
-from dorian_gray.experiments.classify import features_matrix, fit_probe, load_augmented, load_split
+from dorian_gray.experiments.classify import (OPERATING_POINTS, features_matrix, fit_probe, load_augmented,
+                                              load_split, val_threshold)
 from dorian_gray.features import iter_shard
 from dorian_gray.methods import METHODS
 from dorian_gray.metrics import binary_metrics
@@ -43,20 +46,26 @@ def robust_subset(df: pd.DataFrame, n: int, seed: int = 0) -> pd.DataFrame:
 
 
 def extract(subset: pd.DataFrame, embedder, cache: str, dtype: str, batch_size: int = 32) -> None:
-    """Read each shard once and embed every perturbed version of the selected images."""
+    """Read each shard once and embed every perturbed version of the selected images that is not cached yet."""
     for shard, g in sorted(subset.groupby("shard")):
         out = CACHE_DIR / "features" / cache / f"{Path(shard).stem}.npz"
         rows = np.sort(g.row.to_numpy())
-        if out.exists() and np.array_equal(np.load(out)["row"], rows):
+        cached = {}
+        if out.exists():
+            z = np.load(out)
+            if np.array_equal(z["row"], rows):
+                cached = {c: z[c] for c in z.files if c != "row"}
+        missing = [c for c in PERTURBED if c not in cached]
+        if not missing:
             continue
-        feats = {c: [] for c in PERTURBED}
+        feats = {c: [] for c in missing}
         with tqdm(total=len(rows), desc=Path(shard).stem) as bar:
             for _, images in iter_shard(LOCAL_DIR / "data" / shard, rows, batch_size):
-                for c in PERTURBED:
+                for c in missing:
                     feats[c].append(embedder([apply(im, c) for im in images]).astype(dtype))
                 bar.update(len(images))
         out.parent.mkdir(parents=True, exist_ok=True)
-        np.savez(out, row=rows, **{c: np.concatenate(v) for c, v in feats.items()})
+        np.savez(out, row=rows, **cached, **{c: np.concatenate(v) for c, v in feats.items()})
 
 
 def load_robust(subset: pd.DataFrame, cache: str) -> pd.DataFrame:
@@ -82,6 +91,9 @@ def main():
     cache = f"{method.features}_robust"
     df = load_split(method.features, args.holdout, args.seed)
     probe = fit_probe(df, method.classifier(args.C), load_augmented(method.features, df) if args.train_aug else None)
+    val = df.part == "val"
+    df.loc[val, "p_fake"] = probe.predict_proba(features_matrix(df[val]))[:, 1]
+    thresholds = dict(zip(OPERATING_POINTS, [0.5, val_threshold(df)]))
     subset = robust_subset(df, args.n, args.seed)
     extract(subset, method.extractor(), cache, method.cache_dtype)
     data = load_robust(subset, cache)
@@ -91,7 +103,9 @@ def main():
         data["p_fake"] = probe.predict_proba(features_matrix(data.rename(columns={c: "features"})))[:, 1]
         for name, fakes in [("seen", "fake_seen"), ("unseen", "fake_unseen")]:
             m = data.group.isin(["real", fakes])
-            metrics.append({"condition": c, "set": name, **binary_metrics(data.label[m], data.p_fake[m])})
+            for op, t in thresholds.items():
+                metrics.append({"condition": c, "threshold": op, "set": name,
+                                **binary_metrics(data.label[m], data.p_fake[m], t)})
         # did recompression erase the format difference between real JPEG and real PNG?
         flagged = data.assign(flag=data.p_fake >= 0.5).groupby(["group", "format"]).flag.agg(["size", "mean"])
         by_format.append(flagged.reset_index().assign(condition=c))
@@ -99,14 +113,14 @@ def main():
 
     out = RUNS_DIR / f"robustness_{args.method}{'_aug' if args.train_aug else ''}" / datetime.now().strftime("%Y%m%d-%H%M%S")
     out.mkdir(parents=True)
-    (out / "args.json").write_text(json.dumps(vars(args), indent=2))
+    (out / "args.json").write_text(json.dumps({**vars(args), "thresholds": thresholds}, indent=2))
     metrics.to_csv(out / "metrics.csv", index=False)
     by_format.to_csv(out / "flagged_by_format.csv", index=False)
 
     order = list(CONDITIONS)
     for key in ["accuracy", "fpr", "fnr", "auc"]:
         print(f"--- {key}")
-        print(metrics.pivot(index="condition", columns="set", values=key).loc[order].round(3).to_string())
+        print(metrics.pivot(index="condition", columns=["threshold", "set"], values=key).loc[order].round(3).to_string())
     print("--- flagged as fake, by group and original format")
     print(by_format.pivot_table(index="condition", columns=["group", "format"], values="mean").loc[order].round(3).to_string())
     print(f"saved to {out}")

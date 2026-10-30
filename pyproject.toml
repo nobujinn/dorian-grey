@@ -21,6 +21,7 @@ dependencies = [
     "tqdm>=4.66",
     "huggingface-hub>=0.26",
     "pyarrow>=17",
+    "shap>=0.51.0",
 ]
 
 [project.scripts]

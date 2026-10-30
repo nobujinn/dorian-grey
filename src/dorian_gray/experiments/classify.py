@@ -5,11 +5,14 @@ Split protocol (seeded, reproducible):
   * fake generators (`model_name`): a fraction is held out entirely ("unseen" test set);
     images of the remaining generators are split 70 / 10 / 20 % like the reals ("seen" test set).
 So the test results separate in-distribution accuracy from generalisation to unseen generators.
-The decision threshold is 0.5 on the probe's probability and is never tuned on test data.
+Metrics are reported at two decision thresholds, neither tuned on test data: the fixed 0.5 on the
+probe's probability, and the threshold at which 5 % of the *validation* reals are flagged fake
+(`val_fpr5`), which puts all methods at the same operating point.
 
 Usage: uv run python -m dorian_gray.experiments.classify --method {a,a_gbt,b} [--seeds 0 1 2 3 4]
        [--groups spectrum periodic residual dct]   (method A only: feature-group ablation)
        [--train-aug]   (also train on augmented copies, see `prepare --augment`)
+       [--input jpeg75]   (every image re-encoded before extraction, see `prepare --normalize`)
 """
 
 import argparse
@@ -25,7 +28,10 @@ from dorian_gray.config import RUNS_DIR
 from dorian_gray.data.community_forensics import LOCAL_DIR, load_manifest
 from dorian_gray.features import load_cached
 from dorian_gray.methods import METHODS
-from dorian_gray.metrics import binary_metrics
+from dorian_gray.metrics import binary_metrics, threshold_at_fpr
+
+TARGET_FPR = 0.05
+OPERATING_POINTS = ("0.5", f"val_fpr{round(100 * TARGET_FPR)}")
 
 
 def split(df: pd.DataFrame, holdout: float, seed: int) -> pd.Series:
@@ -85,25 +91,32 @@ def select_groups(df: pd.DataFrame, groups: list[str]) -> list[str]:
     return [names[i] for i in cols]
 
 
-def evaluate(df: pd.DataFrame) -> dict:
+def val_threshold(df: pd.DataFrame) -> float:
+    """Threshold for TARGET_FPR on the validation reals; needs `p_fake` on the validation rows."""
+    return threshold_at_fpr(df.loc[(df.part == "val") & (df.label == 0), "p_fake"], TARGET_FPR)
+
+
+def evaluate(df: pd.DataFrame, threshold: float = 0.5) -> dict:
     """Metrics on val, seen-generator test and unseen-generator test; needs a `p_fake` column."""
     real_test = (df.part == "test_seen") & (df.label == 0)
     sets = {"val": df.part == "val", "test_seen": df.part == "test_seen",
             # unseen generators are all fake, so pair them with the real test images
             "test_unseen": real_test | (df.part == "test_unseen")}
-    return {k: binary_metrics(df.loc[m, "label"], df.loc[m, "p_fake"]) for k, m in sets.items()}
+    return {k: binary_metrics(df.loc[m, "label"], df.loc[m, "p_fake"], threshold) for k, m in sets.items()}
 
 
 def run(args, seed: int, out) -> dict:
     method = METHODS[args.method]
-    df = load_split(method.features, args.holdout, seed)
+    features = method.features + (f"_norm-{args.input}" if args.input else "")
+    df = load_split(features, args.holdout, seed)
     names = select_groups(df, args.groups) if method.features == "forensic_v1" else None
-    augmented = load_augmented(method.features, df) if args.train_aug else None
+    augmented = load_augmented(features, df) if args.train_aug else None
     if augmented is not None and names is not None:
         select_groups(augmented, args.groups)
     probe = fit_probe(df, method.classifier(args.C), augmented)
     df["p_fake"] = probe.predict_proba(features_matrix(df))[:, 1]
-    results = evaluate(df)
+    threshold = val_threshold(df)
+    results = dict(zip(OPERATING_POINTS, [evaluate(df), evaluate(df, threshold)]))
 
     test = df.part.isin(["test_seen", "test_unseen"]) & (df.label == 1)
     per_arch = (df[test].groupby(["part", "architecture"])
@@ -117,7 +130,8 @@ def run(args, seed: int, out) -> dict:
 
     out.mkdir(parents=True)
     (out / "metrics.json").write_text(json.dumps({"args": vars(args), "seed": seed,
-                                                  "shards": sorted(df.shard.unique()), **results}, indent=2))
+                                                  "shards": sorted(df.shard.unique()),
+                                                  "val_threshold": threshold, **results}, indent=2))
     per_arch.to_csv(out / "per_architecture.csv", index=False)
     per_format.to_csv(out / "per_format.csv", index=False)
     df.drop(columns=["features"]).to_parquet(out / "predictions.parquet")
@@ -128,8 +142,8 @@ def run(args, seed: int, out) -> dict:
 
     print(f"--- seed {seed}")
     print(df.groupby(["part", "label"]).size().unstack(fill_value=0))
-    for k, v in results.items():
-        print(f"{k:12s} acc={v['accuracy']:.3f} FPR={v['fpr']:.3f} FNR={v['fnr']:.3f} AUC={v['auc']:.3f} "
+    for op, k, v in [(op, k, v) for op, r in results.items() for k, v in r.items()]:
+        print(f"{op:9s} {k:12s} acc={v['accuracy']:.3f} FPR={v['fpr']:.3f} FNR={v['fnr']:.3f} AUC={v['auc']:.3f} "
               f"(real={v['n_real']}, fake={v['n_fake']})")
     print(per_arch.to_string(index=False))
     print(per_format.to_string(index=False))
@@ -143,19 +157,20 @@ def main():
                     help="method A feature groups to use (ablation)")
     ap.add_argument("--train-aug", action="store_true",
                     help="also train on the augmented (resized / recompressed) copies of the training images")
+    ap.add_argument("--input", default=None, help="input normalisation applied to every image (`prepare --normalize`)")
     ap.add_argument("--holdout", type=float, default=0.3, help="fraction of fake generators held out")
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4],
                     help="one split per seed; which generators are held out varies a lot between seeds")
     ap.add_argument("--C", type=float, default=1.0)
     args = ap.parse_args()
 
-    tag = f"method_{args.method}" + ("" if args.method == "b" or len(args.groups) == 4 else "_" + "+".join(args.groups)) + ("_aug" if args.train_aug else "")
+    tag = f"method_{args.method}" + ("" if args.method == "b" or len(args.groups) == 4 else "_" + "+".join(args.groups)) + ("_aug" if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "")
     out = RUNS_DIR / tag / datetime.now().strftime("%Y%m%d-%H%M%S")
-    rows = [{"seed": seed, "set": k, **v} for seed in args.seeds
-            for k, v in run(args, seed, out / f"seed{seed}").items()]
+    rows = [{"seed": seed, "threshold": op, "set": k, **v} for seed in args.seeds
+            for op, r in run(args, seed, out / f"seed{seed}").items() for k, v in r.items()]
     summary = pd.DataFrame(rows)
     summary.to_csv(out / "summary_per_seed.csv", index=False)
-    agg = summary.groupby("set")[["accuracy", "fpr", "fnr", "auc"]].agg(["mean", "std"])
+    agg = summary.groupby(["threshold", "set"])[["accuracy", "fpr", "fnr", "auc"]].agg(["mean", "std"])
     agg.to_csv(out / "summary.csv")
     print(f"=== mean (std) over seeds {args.seeds}")
     print(agg.round(3).to_string())

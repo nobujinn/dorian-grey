@@ -41,13 +41,20 @@ to `runs/` (both git-ignored).
 uv run python -m dorian_gray.data.community_forensics            # metadata manifest of all shards
 uv run python -m dorian_gray.experiments.prepare --method b      # download shards, cache features
 uv run python -m dorian_gray.experiments.classify --method b     # train + evaluate over 5 split seeds
-uv run python -m dorian_gray.experiments.robustness --method b   # JPEG / resize robustness
+uv run python -m dorian_gray.experiments.robustness --method b   # JPEG, resize, blur, noise, WebP
 ```
 
 `--method a` runs the same pipeline for Method A (CPU only); `classify --method a --groups spectrum`
 trains on one feature group (ablation); `--method a_gbt` uses gradient-boosted trees instead of
 logistic regression on the same cached features. Fake generators are held out per split seed, so every
-run reports seen-generator and unseen-generator results separately.
+run reports seen-generator and unseen-generator results separately, at the threshold 0.5 and at the
+threshold that flags 5 % of the validation reals. `--train-aug` (after `prepare --augment`) also trains on
+randomly recompressed / resized copies.
+
+```
+uv run python -m dorian_gray.experiments.explain --run method_a_gbt_aug   # Method A explanations per feature group
+uv run python -m dorian_gray.experiments.figures                          # thesis figures
+```
 
 ```
 uv run pytest
