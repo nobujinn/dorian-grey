@@ -11,9 +11,10 @@ import pandas as pd
 
 from dorian_gray.config import RUNS_DIR
 
-# reference categorical palette, slots 1-2; markers keep the methods apart in grayscale print
+# reference categorical palette, slots 1-3 (validated all-pairs); markers keep the series apart in grayscale print
 STYLE = {"a": {"color": "#2a78d6", "marker": "o", "label": "Method A (forensic)"},
-         "b": {"color": "#eb6834", "marker": "s", "label": "Method B (CLIP probe)"}}
+         "b": {"color": "#eb6834", "marker": "s", "label": "Method B (CLIP probe)"},
+         "a_gbt": {"color": "#1baf7a", "marker": "^", "label": "Method A, boosted trees"}}
 INK, MUTED, GRID = "#0b0b0b", "#52514e", "#e4e3df"
 JPEG = [("clean", "none"), ("jpeg95", "95"), ("jpeg85", "85"), ("jpeg75", "75"), ("jpeg50", "50")]
 RESIZE = [("resize0.5", 0.5), ("resize0.75", 0.75), ("clean", 1.0), ("resize1.5", 1.5)]
@@ -77,13 +78,17 @@ def main():
     out_dir = RUNS_DIR / "figures"
     out_dir.mkdir(parents=True, exist_ok=True)
     # A vs. B, classifiers trained on clean images; seen and unseen generators
-    robustness_figure(out_dir / "robustness", [{"pattern": f"robustness_{m}/*/metrics.csv", "method": m} for m in STYLE],
+    robustness_figure(out_dir / "robustness", [{"pattern": f"robustness_{m}/*/metrics.csv", "method": m} for m in ("a", "b")],
                       [("seen", "-"), ("unseen", "--")], [("seen generators", "-"), ("unseen generators", "--")])
     # effect of training-time augmentation; unseen generators (the harder test set)
     robustness_figure(out_dir / "robustness_augmentation",
                       [{"pattern": f"robustness_{m}{aug}/*/metrics.csv", "method": m, "linestyle": ls}
-                       for m in STYLE for aug, ls in [("", "-"), ("_aug", "--")]],
+                       for m in ("a", "b") for aug, ls in [("", "-"), ("_aug", "--")]],
                       [("unseen", "-")], [("trained on clean images", "-"), ("trained with augmentation", "--")])
+    # Method A's classifier (linear vs. boosted trees) next to B; all trained with augmentation
+    robustness_figure(out_dir / "robustness_classifier",
+                      [{"pattern": f"robustness_{m}_aug/*/metrics.csv", "method": m} for m in ("a", "a_gbt", "b")],
+                      [("seen", "-"), ("unseen", "--")], [("seen generators", "-"), ("unseen generators", "--")])
     print(f"saved to {out_dir}")
 
 

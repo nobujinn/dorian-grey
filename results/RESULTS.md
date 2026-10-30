@@ -14,7 +14,8 @@ fixed at 0.5 and never tuned on test data.
 | `robustness_a/` | Method A under JPEG recompression and resizing, same layout as `robustness_b/` |
 | `robustness_b/` | Method B under JPEG recompression and resizing: `metrics.csv`, `flagged_by_format.csv` |
 | `method_a_aug/`, `method_b_aug/`, `robustness_a_aug/`, `robustness_b_aug/` | Same experiments with training-time augmentation (section 4) |
-| `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training) |
+| `method_a_gbt/`, `method_a_gbt_aug/`, `robustness_a_gbt/`, `robustness_a_gbt_aug/` | Method A with gradient-boosted trees instead of logistic regression (section 5) |
+| `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training), `robustness_classifier.pdf/.png` (A linear vs. A trees vs. B, augmented training) |
 
 ---
 
@@ -349,14 +350,99 @@ Seen-generator FNR, B: q75 0.390 → 0.218, q50 0.462 → 0.153; A: q85 0.870 �
   JPEG stays at 0.5–0.6, and resizing still flags most real images (×1.5: 0.726). The same hand-crafted
   statistics measure both generation traces and compression/interpolation traces, and a **linear**
   classifier cannot separate the two. Next to try: a non-linear classifier for Method A (gradient
-  boosting, as planned in PLAN.md) on the same augmented features.
+  boosting, as planned in PLAN.md) on the same augmented features (done: section 5).
 - Overall ranking unchanged: B > A on every condition, with and without augmentation; the gap is
   largest under post-processing. For the thesis this supports the expected trade-off: Method A is
   interpretable but fragile, Method B is robust but a black-box representation.
 
-## 5. Open issues / next steps
+## 5. Method A with a non-linear classifier: gradient-boosted trees (30. 10. 2026)
 
-- Non-linear classifier for Method A (gradient boosting) on clean + augmented features.
+`classify --method a_gbt`: the same 165 cached forensic features, classifier
+`HistGradientBoostingClassifier` (learning rate 0.05, ≤ 1000 iterations, 31 leaves, L2 = 1,
+balanced class weights, early stopping on 10 % of the training set, `forensic.make_boosting`).
+Nothing was tuned on test data. Question: is Method A's weakness the *features* or the *linear
+classifier*? Trees can model interactions (e.g. "blockiness only matters when the spectrum is
+flat"), which the logistic regression cannot.
+
+Early stopping ended the clean runs after 651–953 iterations; the augmented runs hit the 1000-iteration
+cap in all 5 seeds, so they might improve slightly with more iterations.
+
+### 5.1 Clean test sets (5 seeds)
+
+| Method A classifier | Training | Seen: FPR | Seen: FNR | Seen: AUC | Unseen: FNR | Unseen: AUC |
+|---|---|---|---|---|---|---|
+| logistic regression | clean | 0.083 ± 0.019 | 0.082 ± 0.034 | 0.971 ± 0.018 | 0.304 ± 0.137 | 0.832 ± 0.117 |
+| boosted trees | clean | 0.038 ± 0.012 | 0.038 ± 0.024 | 0.993 ± 0.005 | 0.304 ± 0.200 | 0.864 ± 0.109 |
+| logistic regression | + augmentation | 0.109 ± 0.004 | 0.110 ± 0.032 | 0.955 ± 0.016 | 0.279 ± 0.092 | 0.884 ± 0.052 |
+| boosted trees | + augmentation | 0.050 ± 0.012 | 0.050 ± 0.024 | 0.990 ± 0.006 | 0.276 ± 0.141 | 0.938 ± 0.029 |
+| *Method B (reference)* | + augmentation | 0.035 ± 0.005 | 0.037 ± 0.005 | 0.994 ± 0.001 | 0.075 ± 0.024 | 0.989 ± 0.004 |
+
+### 5.2 JPEG shortcut (mean over seeds, same definitions as 4.2)
+
+| Method A classifier | Training | LFM detected, unseen (seeds 0, 2, 4) | LFM detected, seen (seeds 1, 3) | Other unseen LatDiff | Real flagged JPEG / PNG |
+|---|---|---|---|---|---|
+| logistic regression | clean | 0.031 | 0.424 | 0.947 | 0.034 / 0.121 |
+| boosted trees | clean | 0.008 | 0.617 | 0.966 | 0.014 / 0.057 |
+| logistic regression | + augmentation | 0.220 | 0.360 | 0.913 | 0.059 / 0.148 |
+| boosted trees | + augmentation | 0.184 | 0.578 | 0.950 | 0.042 / 0.056 |
+
+### 5.3 Robustness (seed 0, same 3,000-image subset as 2.4 / 3.5 / 4.3)
+
+| Condition | LR clean: FNR unseen / AUC unseen | Trees clean: FNR unseen / AUC unseen | LR aug: FNR unseen / AUC unseen | Trees aug: FNR unseen / AUC unseen |
+|---|---|---|---|---|
+| clean | 0.288 / 0.853 | 0.298 / 0.869 | 0.274 / 0.897 | 0.261 / 0.943 |
+| JPEG q95 | 0.686 / 0.786 | 0.557 / 0.851 | 0.539 / 0.846 | 0.455 / 0.898 |
+| JPEG q85 | 0.908 / 0.669 | 0.909 / 0.785 | 0.617 / 0.805 | 0.575 / 0.841 |
+| JPEG q75 | 0.942 / 0.606 | 0.975 / 0.711 | 0.591 / 0.794 | 0.637 / 0.833 |
+| JPEG q50 | 0.968 / 0.588 | 0.993 / 0.664 | 0.524 / 0.804 | 0.524 / 0.840 |
+| resize ×0.5 | 0.137 / 0.780 | 0.135 / 0.805 | 0.169 / 0.802 | 0.199 / 0.846 |
+| resize ×0.75 | 0.243 / 0.815 | 0.216 / 0.856 | 0.232 / 0.844 | 0.263 / 0.902 |
+| resize ×1.5 | 0.095 / 0.616 | 0.068 / 0.792 | 0.113 / 0.691 | 0.176 / 0.871 |
+
+FPR (real images flagged fake):
+
+| Condition | LR clean | Trees clean | LR aug | Trees aug | B aug |
+|---|---|---|---|---|---|
+| clean | 0.055 | 0.022 | 0.088 | 0.026 | 0.045 |
+| JPEG q95 / q75 / q50 | 0.012 / 0.008 / 0.001 | 0.015 / 0.001 / 0.001 | 0.057 / 0.080 / 0.095 | 0.042 / 0.039 / 0.079 | 0.031 / 0.026 / 0.061 |
+| resize ×0.5 / ×0.75 / ×1.5 | 0.587 / 0.278 / 0.754 | 0.475 / 0.220 / 0.700 | 0.432 / 0.234 / 0.726 | 0.264 / 0.098 / 0.245 | 0.168 / 0.072 / 0.148 |
+
+Seen-generator FNR, trees aug: q85 0.366, q75 0.446, q50 0.316 (LR aug: 0.486 / 0.466 / 0.364).
+
+![Method A classifiers vs. Method B, all trained with augmentation](figures/robustness_classifier.png)
+
+**Findings**
+- **On seen generators, the linear classifier was the bottleneck.** Boosted trees on the *same*
+  features halve both error rates (FPR 0.083 → 0.038, FNR 0.082 → 0.038; AUC 0.993), close to
+  Method B (0.996). The forensic features do contain enough information to separate real images from
+  the generators they were trained on.
+- **On unseen generators, the features are the bottleneck.** Unseen FNR does not move (0.304 →
+  0.304) and the seed spread grows (± 0.200). The extra capacity is spent on generator-specific
+  patterns. The JPEG shortcut gets *stronger*: held-out LFM is detected at 0.008 (LR 0.031), while
+  LFM in training is learned better (0.617 vs. 0.424). Trees fit the training distribution more
+  closely, including its bias.
+- **Augmentation + trees is the best Method A variant.** Unseen AUC 0.938 (LR + aug 0.884, B + aug
+  0.989) with seen FPR 0.050 instead of 0.109. The largest gain is resize robustness: FPR at ×1.5
+  0.726 → 0.245, ×0.75 0.234 → 0.098. With augmented examples, trees can learn "interpolation
+  traces → not evidence of generation" as a separate rule; a single hyperplane could not.
+- **JPEG remains Method A's weak point.** Even trees + aug miss 0.45–0.64 of unseen fakes under JPEG
+  (q95–q50). AUC stays 0.83–0.90, so part of this is a shifted operating point (scores of recompressed
+  fakes fall below 0.5 but still above most reals) rather than lost information; a threshold chosen
+  for a fixed FPR would recover some of it. The unseen-generator FNR on clean images (0.261 at
+  AUC 0.943) shows the same pattern.
+- **Interpretability cost.** The logistic regression gives exact per-image explanations
+  (coefficient × standardised value, 3.4). Trees do not; an explanation would need TreeSHAP or
+  grouped permutation importance. For the framework this is a design choice: LR for the
+  explanation, trees for the score, or trees + SHAP.
+- Ranking by unseen AUC: B + aug > A trees + aug > A LR + aug in every condition of 5.3. At the fixed
+  0.5 threshold the picture is mixed: trees have the lowest FPR of all variants on clean images
+  (0.026 vs. B 0.045 on this subset) but a *higher* unseen FNR than LR under resizing (×1.5: 0.176 vs.
+  0.113) and at q75 (0.637 vs. 0.591), again an operating-point effect.
+
+## 6. Open issues / next steps
+
+- Explanation for the tree model (TreeSHAP or grouped permutation importance), or keep LR for explanations.
+- Decision threshold: 0.5 vs. a threshold for a fixed validation FPR (5.3 shows shifted scores under JPEG).
 - Robustness to operations *not* used in training (blur, noise, other JPEG encoder), to test 4.3 fairly.
 - JPEG fakes from several generators, so the shortcut can also be measured without augmentation.
 - Control the grayscale bias (3.6).

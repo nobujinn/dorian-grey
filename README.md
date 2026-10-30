@@ -45,7 +45,8 @@ uv run python -m dorian_gray.experiments.robustness --method b   # JPEG / resize
 ```
 
 `--method a` runs the same pipeline for Method A (CPU only); `classify --method a --groups spectrum`
-trains on one feature group (ablation). Fake generators are held out per split seed, so every
+trains on one feature group (ablation); `--method a_gbt` uses gradient-boosted trees instead of
+logistic regression on the same cached features. Fake generators are held out per split seed, so every
 run reports seen-generator and unseen-generator results separately.
 
 ```

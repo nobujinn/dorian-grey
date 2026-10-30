@@ -7,7 +7,7 @@ Split protocol (seeded, reproducible):
 So the test results separate in-distribution accuracy from generalisation to unseen generators.
 The decision threshold is 0.5 on the probe's probability and is never tuned on test data.
 
-Usage: uv run python -m dorian_gray.experiments.classify --method {a,b} [--seeds 0 1 2 3 4]
+Usage: uv run python -m dorian_gray.experiments.classify --method {a,a_gbt,b} [--seeds 0 1 2 3 4]
        [--groups spectrum periodic residual dct]   (method A only: feature-group ablation)
        [--train-aug]   (also train on augmented copies, see `prepare --augment`)
 """
@@ -97,7 +97,7 @@ def evaluate(df: pd.DataFrame) -> dict:
 def run(args, seed: int, out) -> dict:
     method = METHODS[args.method]
     df = load_split(method.features, args.holdout, seed)
-    names = select_groups(df, args.groups) if args.method == "a" else None
+    names = select_groups(df, args.groups) if method.features == "forensic_v1" else None
     augmented = load_augmented(method.features, df) if args.train_aug else None
     if augmented is not None and names is not None:
         select_groups(augmented, args.groups)
@@ -122,7 +122,7 @@ def run(args, seed: int, out) -> dict:
     per_format.to_csv(out / "per_format.csv", index=False)
     df.drop(columns=["features"]).to_parquet(out / "predictions.parquet")
     joblib.dump(probe, out / "model.joblib")
-    if names is not None:  # global explanation: log-odds change per standard deviation of each feature
+    if names is not None and hasattr(probe, "steps"):  # linear model only; global explanation: log-odds change per standard deviation of each feature
         coef = pd.DataFrame({"feature": names, "coef": probe[-1].coef_[0]})
         coef.reindex(coef.coef.abs().sort_values(ascending=False).index).to_csv(out / "coefficients.csv", index=False)
 

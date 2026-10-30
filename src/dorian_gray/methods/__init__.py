@@ -33,7 +33,13 @@ def _forensic_lr(C):
     return make_classifier(C)
 
 
+def _forensic_gbt(C):
+    from dorian_gray.methods.forensic import make_boosting
+    return make_boosting(C)
+
+
 METHODS = {
     "a": Method("forensic_v1", _forensic, _forensic_lr, "float32"),
+    "a_gbt": Method("forensic_v1", _forensic, _forensic_gbt, "float32"),  # same features, non-linear classifier
     "b": Method("clip_vitl14", _clip, _clip_probe),
 }

@@ -1,0 +1,8 @@
+{
+  "method": "a_gbt",
+  "n": 1000,
+  "holdout": 0.3,
+  "seed": 0,
+  "C": 1.0,
+  "train_aug": true
+}

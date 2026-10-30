@@ -3,7 +3,7 @@ import pytest
 from PIL import Image
 
 from dorian_gray.methods.forensic import (GROUPS, ForensicFeatures, explain, feature_group,
-                                          image_features, make_classifier)
+                                          image_features, make_boosting, make_classifier)
 from dorian_gray.perturb import jpeg
 
 
@@ -45,3 +45,13 @@ def test_explain_returns_top_contributions():
     top = explain(clf, X[-1], ff.names, k=3)
     assert len(top) == 3 and all(name in ff.names for name, _ in top)
     assert abs(top[0][1]) >= abs(top[-1][1])
+
+
+def test_boosting_learns_interaction_linear_model_cannot():
+    # label = sign(x0 * x1): no single feature is informative, only their combination
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(4000, 5))
+    y = (X[:, 0] * X[:, 1] > 0).astype(int)
+    tr, te = slice(0, 3000), slice(3000, None)
+    acc = lambda clf: (clf.fit(X[tr], y[tr]).predict(X[te]) == y[te]).mean()
+    assert acc(make_classifier()) < 0.6 < 0.9 < acc(make_boosting())

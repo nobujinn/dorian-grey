@@ -21,6 +21,7 @@ import numpy as np
 from PIL import Image
 from scipy import fft, ndimage
 from scipy.stats import kurtosis
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -164,6 +165,15 @@ def make_classifier(C: float = 1.0):
     """Standardised features + logistic regression: each coefficient is the log-odds change per
     standard deviation of one named feature, which is what the explanation reports."""
     return make_pipeline(StandardScaler(), LogisticRegression(C=C, max_iter=5000, class_weight="balanced"))
+
+
+def make_boosting(C: float = 1.0):
+    """Gradient-boosted trees on the same features: non-linear interactions (e.g. "blockiness only
+    matters when the spectrum is also flat") that the linear model cannot express. `C` is unused,
+    it keeps the factory signature; trees need no scaling. Early stopping on 10 % of the training set."""
+    return HistGradientBoostingClassifier(learning_rate=0.05, max_iter=1000, max_leaf_nodes=31,
+                                          l2_regularization=1.0, early_stopping=True, n_iter_no_change=20,
+                                          class_weight="balanced", random_state=0)
 
 
 def explain(classifier, x: np.ndarray, names: list[str], k: int = 5) -> list[tuple[str, float]]:
