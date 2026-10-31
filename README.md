@@ -56,6 +56,14 @@ uv run python -m dorian_gray.experiments.explain --run method_a_gbt_aug   # Meth
 uv run python -m dorian_gray.experiments.figures                          # thesis figures
 ```
 
+Independent test sets (never used for training or tuning) are evaluated with the saved seed-0 models
+and the thresholds fixed on Community Forensics: a folder with `real/` and `fake/` subfolders, or a CSV
+manifest with `path,label[,source]`.
+
+```
+uv run python -m dorian_gray.experiments.external --name <set> --root D:/datasets/<set>
+```
+
 ```
 uv run pytest
 ```
