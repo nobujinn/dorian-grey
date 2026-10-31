@@ -17,6 +17,7 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `robustness_b/` | Method B under JPEG recompression and resizing: `metrics.csv`, `flagged_by_format.csv` |
 | `method_a_aug/`, `method_b_aug/`, `robustness_a_aug/`, `robustness_b_aug/` | Same experiments with training-time augmentation (section 4) |
 | `method_a_gbt/`, `method_a_gbt_aug/`, `robustness_a_gbt/`, `robustness_a_gbt_aug/` | Method A with gradient-boosted trees instead of logistic regression (section 5) |
+| `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
 | `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
 | `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training), `robustness_classifier.pdf/.png` (A linear vs. A trees vs. B, augmented training), `robustness_unseen_ops.pdf/.png` (operations not used in training, section 8) |
 
@@ -626,9 +627,74 @@ A trees 0.896, B 0.467, B + aug 0.341.
   large part of its errors is a shifted operating point, which a threshold or calibration fitted on
   degraded validation images could reduce (to be tested).
 
-## 9. Open issues / next steps
+## 9. Input normalisation: every image re-encoded as JPEG q75 (31. 10. 2026)
 
-- JPEG fakes from several generators, so the shortcut can also be measured without augmentation.
+Question: if every image, real and fake, train and test, goes through the **same** compression before
+feature extraction, does the "JPEG = real" shortcut disappear, and what does it cost?
+
+`prepare --normalize jpeg75` re-encodes all 42,000 images with Pillow JPEG q75 (4:2:0) before both
+extractors; `classify --input jpeg75` trains and evaluates on these features with the usual 5 split
+seeds. Nothing else changes. Real JPEGs are thereby compressed twice, PNG images once.
+
+### 9.1 Results (5 seeds)
+
+| Method | Input | Seen AUC | Unseen AUC | At 5 % val. FPR: seen FNR | At 5 % val. FPR: unseen FNR | Unseen FNR at 0.5 (FPR) |
+|---|---|---|---|---|---|---|
+| A, logistic regression | original | 0.971 ± 0.018 | 0.832 ± 0.117 | 0.134 ± 0.067 | 0.367 ± 0.090 | 0.304 ± 0.137 (0.083) |
+| A, logistic regression | JPEG q75 | 0.889 ± 0.008 | 0.840 ± 0.013 | 0.472 ± 0.009 | 0.595 ± 0.019 | 0.309 ± 0.024 (0.191) |
+| A, boosted trees | original | 0.993 ± 0.005 | 0.864 ± 0.109 | 0.035 ± 0.032 | 0.283 ± 0.177 | 0.304 ± 0.200 (0.038) |
+| A, boosted trees | JPEG q75 | 0.944 ± 0.004 | 0.897 ± 0.012 | 0.273 ± 0.015 | 0.453 ± 0.015 | 0.259 ± 0.039 (0.132) |
+| B | original | 0.996 ± 0.001 | 0.985 ± 0.008 | 0.019 ± 0.007 | 0.074 ± 0.043 | 0.105 ± 0.055 (0.030) |
+| B | JPEG q75 | 0.978 ± 0.004 | 0.968 ± 0.013 | 0.103 ± 0.021 | 0.140 ± 0.058 | 0.117 ± 0.062 (0.075) |
+
+The shortcut (threshold 0.5, mean over seeds, definitions as in 4.2):
+
+| Method | Input | LFM detected, unseen (seeds 0, 2, 4) | LFM detected, seen (seeds 1, 3) | Other unseen LatDiff | Real flagged JPEG / PNG |
+|---|---|---|---|---|---|
+| A, logistic regression | original | 0.031 | 0.424 | 0.947 | 0.034 / 0.121 |
+| A, logistic regression | JPEG q75 | **0.621** | 0.656 | 0.779 | 0.197 / 0.186 |
+| A, boosted trees | original | 0.008 | 0.617 | 0.966 | 0.014 / 0.057 |
+| A, boosted trees | JPEG q75 | **0.689** | 0.794 | 0.815 | 0.151 / 0.118 |
+| B | original | 0.702 | 0.910 | 0.951 | 0.026 / 0.034 |
+| B | JPEG q75 | **0.978** | 0.977 | 0.903 | 0.085 / 0.068 |
+
+Per seed, unseen FNR at 0.5 with JPEG q75 input: A LR 0.337, 0.322, 0.313, 0.299, 0.275; A trees 0.317,
+0.255, 0.275, 0.236, 0.214; B 0.110, 0.089, 0.086, 0.225, 0.075.
+
+**Findings**
+- **Normalisation removes the shortcut.** The held-out JPEG generator LFM is now detected like any
+  other generator: A LR 0.031 → 0.621, A trees 0.008 → 0.689, B 0.702 → 0.978. Whether LFM was in
+  training or not hardly matters any more (A LR 0.621 unseen vs. 0.656 seen; B 0.978 vs. 0.977), and
+  real JPEGs and real PNGs are flagged at about the same rate. File format no longer carries
+  information about the label.
+- **The split-to-split spread collapses** for Method A (unseen FNR std 0.137 → 0.024 for LR,
+  0.200 → 0.039 for trees). Most of the earlier variance came from whether LFM was held out, i.e. from
+  the shortcut, not from the difficulty of the generators.
+- **It costs accuracy, and part of what it costs was never real.** Seen AUC drops (A LR 0.971 → 0.889,
+  A trees 0.993 → 0.944, B 0.996 → 0.978). JPEG q75 removes part of the genuine generator traces (other
+  unseen latent-diffusion generators: A 0.947 → 0.779, B 0.951 → 0.903). But part of the original
+  clean-benchmark accuracy came from the format difference itself, which a real-world detector cannot
+  rely on. The normalised numbers are the more honest estimate of what each method detects from the
+  image content.
+- **Method A loses much more than B.** At 5 % FPR, A trees miss 0.453 of unseen fakes, B 0.140. Unseen
+  AUC of Method A even rises slightly (0.832 → 0.840, 0.864 → 0.897), but its low-FPR region gets much
+  worse: after strong compression, the high-frequency residual it relies on is largely gone for every
+  image. B's CLIP representation keeps most of its evidence.
+- **Training on the deployment format matters.** In the robustness test (2.4, seed 0), B trained on
+  original images and tested on JPEG q75 missed 0.418 of unseen fakes at 0.5. Trained and tested on
+  q75 it misses 0.110 (seed 0; 0.117 over 5 seeds). A detector should be trained on images that went through the same pipeline as the
+  images it will see.
+- **Caveat:** real JPEGs are compressed twice and PNG images once, so double-compression traces could in
+  principle form a new cue. The equal flag rates of real JPEGs and PNGs (A LR 0.197 / 0.186) suggest
+  that this cue is weak here.
+- For the thesis: the clean benchmark overstates both methods, Method A much more. A format-controlled
+  evaluation (normalised input, or JPEG fakes from many generators) should be the reference protocol
+  for the final comparison.
+
+## 10. Open issues / next steps
+
+- Format-controlled evaluation as the reference protocol (9.1): normalised input, and/or JPEG fakes from
+  several generators. Combine normalisation with augmentation, and test other normalisation qualities.
 - Chroma-independent residual features for Method A (7.2), to remove the chroma-subsampling shortcut.
 - Control the grayscale bias (3.6).
 - Threshold / calibration under post-processing: a threshold set on clean data does not hold its FPR
