@@ -1,0 +1,17 @@
+label,format,size,mean,model,threshold
+0,JPEG,6250,0.37952,method_a,0.5
+1,JPEG,6250,0.29952,method_a,0.5
+0,JPEG,6250,0.30512,method_a,val_fpr5
+1,JPEG,6250,0.23424,method_a,val_fpr5
+0,JPEG,6250,0.46608,method_a_gbt_aug,0.5
+1,JPEG,6250,0.4952,method_a_gbt_aug,0.5
+0,JPEG,6250,0.51472,method_a_gbt_aug,val_fpr5
+1,JPEG,6250,0.5416,method_a_gbt_aug,val_fpr5
+0,JPEG,6250,0.5688,method_b,0.5
+1,JPEG,6250,0.59072,method_b,0.5
+0,JPEG,6250,0.67152,method_b,val_fpr5
+1,JPEG,6250,0.68368,method_b,val_fpr5
+0,JPEG,6250,0.64832,method_b_aug,0.5
+1,JPEG,6250,0.72288,method_b_aug,0.5
+0,JPEG,6250,0.69888,method_b_aug,val_fpr5
+1,JPEG,6250,0.76816,method_b_aug,val_fpr5

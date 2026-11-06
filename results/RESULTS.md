@@ -17,6 +17,7 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `robustness_b/` | Method B under JPEG recompression and resizing: `metrics.csv`, `flagged_by_format.csv` |
 | `method_a_aug/`, `method_b_aug/`, `robustness_a_aug/`, `robustness_b_aug/` | Same experiments with training-time augmentation (section 4) |
 | `method_a_gbt/`, `method_a_gbt_aug/`, `robustness_a_gbt/`, `robustness_a_gbt_aug/` | Method A with gradient-boosted trees instead of logistic regression (section 5) |
+| `external_ntire2026_val/`, `external_aigi_now_pixel/` | Independent test sets (section 10 ff.): metrics per subset and threshold, flag rate per format |
 | `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
 | `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
 | `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training), `robustness_classifier.pdf/.png` (A linear vs. A trees vs. B, augmented training), `robustness_unseen_ops.pdf/.png` (operations not used in training, section 8) |
@@ -691,7 +692,62 @@ Per seed, unseen FNR at 0.5 with JPEG q75 input: A LR 0.337, 0.322, 0.313, 0.299
   evaluation (normalised input, or JPEG fakes from many generators) should be the reference protocol
   for the final comparison.
 
-## 10. Open issues / next steps
+## 10. Independent test 1: NTIRE 2026 Robust AIGI Detection, validation set (6. 11. 2026)
+
+**Data** (`D:\datasets\ntire2026-aigi-val`, HF `deepfakesMSU/NTIRE-RobustAIGenDetection-val`, public; no
+licence stated, cite Gushchin et al., CVPRW 2026): 10,000 validation + 2,500 "hard" validation images,
+1:1 real/fake, labels released after the challenge. Real images come from web image-text datasets
+(CC12M, CommonPool, RedCaps); fakes from 9 generators (FLUX.1 Dev and Kontext Dev, SDXL Turbo,
+Playground v2.5, Lumina Image 2.0, Qwen Image, SD3 Medium, Ideogram v3 Turbo, Imagen 4 Fast), only
+SDXL Turbo (and an older Playground version) appear in our Community Forensics sample's family. Half
+the images carry 1–5 distortions (blur, noise, JPEG, colour changes …), listed per image.
+**Format is controlled by design:** in a sample of 400 + 400 clean images, every image (real and fake)
+has the same JPEG quantisation table (luma q[0] = 2, i.e. high quality); sizes are similar (most
+common 800 px for reals, 1024 px for fakes).
+
+**Protocol:** `experiments/external.py`, seed-0 models of the latest `classify` runs and their fixed
+Community Forensics thresholds (0.5 and 5 % validation FPR); nothing is adapted to NTIRE.
+**Pipeline check:** 300 Community Forensics test images saved to files and run through the same
+external pipeline gave scores identical to the original experiment (max difference 0.0, AUC 0.99),
+so the results below are not an artefact of the evaluation code.
+
+### 10.1 Results at the 5 % validation-FPR threshold (FPR / FNR, AUC)
+
+| Subset (real + fake) | A, LR | A, trees + aug | B | B + aug |
+|---|---|---|---|---|
+| all 12,500 | 0.305 / 0.766, AUC 0.440 | 0.515 / 0.458, AUC 0.518 | 0.672 / 0.316, AUC 0.521 | 0.699 / 0.232, AUC 0.563 |
+| val, clean (5,000) | 0.269 / 0.880, AUC 0.380 | 0.433 / 0.584, AUC 0.498 | 0.555 / 0.443, AUC 0.507 | 0.604 / 0.292, AUC 0.586 |
+| val, distorted (5,000) | 0.347 / 0.629, AUC 0.518 | 0.586 / 0.322, AUC 0.557 | 0.793 / 0.169, AUC 0.550 | 0.792 / 0.148, AUC 0.571 |
+| hard, clean (1,250) | 0.264 / 0.917, AUC 0.360 | 0.435 / 0.634, AUC 0.457 | 0.502 / 0.552, AUC 0.449 | 0.566 / 0.413, AUC 0.512 |
+| hard, distorted (1,250) | 0.323 / 0.704, AUC 0.493 | 0.635 / 0.325, AUC 0.499 | 0.819 / 0.163, AUC 0.525 | 0.837 / 0.146, AUC 0.520 |
+
+Median score of Method B + aug (threshold 0.432): val clean real 0.547 / fake 0.671; val distorted
+real 0.800 / fake 0.868; hard clean real 0.490 / fake 0.503.
+
+**Findings**
+- **Neither method transfers.** All four models are close to chance (AUC 0.36–0.59); the best is
+  B + aug on clean validation images (AUC 0.586). On Community Forensics the same models reach unseen-
+  generator AUC 0.94–0.99. Method A is even below chance on clean images (AUC 0.36–0.38).
+- **Real NTIRE images look fake to the models.** At the threshold that flags 5 % of Community
+  Forensics reals, Method B flags 56–60 % of clean NTIRE reals, and ~80 % of distorted reals. The
+  score distribution of *both* classes is shifted up, so the threshold, and largely also the ranking,
+  no longer work. What the models learned as "real" is "an original camera photo as stored in
+  Community Forensics"; NTIRE reals are web images that were re-encoded (and sizes aligned) by the
+  organisers, exactly the kind of processing that our robustness tests showed to push reals towards
+  "fake" (sections 2.4, 8: resizing and blur raise FPR).
+- **Distortions push everything to "fake"** (B + aug median 0.80–0.87 for both classes), consistent with
+  the blur result in section 8.
+- **Format control removes our models' easy cues.** Real and fake share one JPEG quality here, so any
+  reliance on compression differences (sections 3.2, 7, 9) is useless, and the remaining cues do not
+  generalise to these generators and this real-image source.
+- This matches the literature: a CLIP linear probe (UnivFD) reaches AUC 0.56 on the in-the-wild
+  Deepfake-Eval-2024 (`chandra2025deepfakeeval`), and NTIRE's top teams (AUC ~0.97) trained on NTIRE's
+  own 277k training images plus large external corpora. (Both numbers from the research notes; verify in
+  the PDFs before citing.)
+- **Pending (queued):** the models trained on JPEG-q75-normalised input (section 9), which never saw
+  the format cue; and the second independent test set, AIGI-Now.
+
+## 11. Open issues / next steps
 
 - Format-controlled evaluation as the reference protocol (9.1): normalised input, and/or JPEG fakes from
   several generators. Combine normalisation with augmentation, and test other normalisation qualities.
