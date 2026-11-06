@@ -18,6 +18,7 @@ __pycache__/
 cache/
 features/
 checkpoints/
+/models/
 runs/
 *.log
 *.npy

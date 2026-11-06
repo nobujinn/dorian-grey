@@ -25,6 +25,23 @@ uv run dorian-gray
 PyTorch is installed from the CUDA 12.6 index, which still supports older GPUs (e.g. GTX 10xx).
 Without an NVIDIA GPU everything runs on the CPU.
 
+## Usage (prototype)
+
+```
+uv run dorian-gray --export-models          # copy the chosen trained models from runs/ to models/
+uv run dorian-gray photo.jpg                # verdict + explanation
+uv run dorian-gray photo.jpg --json         # full report
+```
+
+```python
+from dorian_gray.detector import detect
+report = detect("photo.jpg")   # verdict, score, per-method scores, Method A evidence per feature group
+```
+
+Method B (CLIP probe) gives the verdict; Method A (forensic features, boosted trees) explains it with
+TreeSHAP contributions per feature group. Scores are not calibrated yet. Models are trained by the
+experiments below; `models/` is not part of the repository.
+
 ## Data
 
 Datasets are **not** part of this repository (their terms of use forbid redistribution).
