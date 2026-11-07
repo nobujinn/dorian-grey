@@ -17,7 +17,8 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `robustness_b/` | Method B under JPEG recompression and resizing: `metrics.csv`, `flagged_by_format.csv` |
 | `method_a_aug/`, `method_b_aug/`, `robustness_a_aug/`, `robustness_b_aug/` | Same experiments with training-time augmentation (section 4) |
 | `method_a_gbt/`, `method_a_gbt_aug/`, `robustness_a_gbt/`, `robustness_a_gbt_aug/` | Method A with gradient-boosted trees instead of logistic regression (section 5) |
-| `external_ntire2026_val/`, `external_aigi_now_pixel/` | Independent test sets (section 10 ff.): metrics per subset and threshold, flag rate per format |
+| `external_ntire2026_val/`, `external_ntire2026_test/`, `external_aigi_now_pixel/` | Independent test sets (sections 10–11): metrics per subset and threshold, flag rate per format |
+| `mixed_ntire2026_train_aug/`, `mixed_ntire2026_train_nocf/` | Training with NTIRE data added (section 12): metrics per method, seed, test set and subset |
 | `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
 | `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
 | `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training), `robustness_classifier.pdf/.png` (A linear vs. A trees vs. B, augmented training), `robustness_unseen_ops.pdf/.png` (operations not used in training, section 8) |
@@ -745,9 +746,115 @@ real 0.800 / fake 0.868; hard clean real 0.490 / fake 0.503.
   own 277k training images plus large external corpora. (Both numbers from the research notes; verify in
   the PDFs before citing.)
 - **Pending (queued):** the models trained on JPEG-q75-normalised input (section 9), which never saw
-  the format cue; and the second independent test set, AIGI-Now.
+  the format cue; and the second independent test set, AIGI-Now (section 11).
 
-## 11. Open issues / next steps
+## 11. Independent test 2: AIGI-Now, "pixel" subset (6. 11. 2026)
+
+**Data** (`D:\datasets\aigi-now`, HF `Gaffeyzz/AIGI-Now`, arXiv 2512.06746, public; no licence stated):
+9 recent generators, per generator 1,000 COCO reals + 1,000 fakes (18,000 images; the 9,000 reals are
+3,303 unique COCO images reused across generators). Same protocol as section 10 (seed-0 models, fixed
+Community Forensics thresholds, nothing adapted).
+
+**The subset is *not* format-controlled** (checked on the files, contrary to the first reading of the
+dataset description): every real is a COCO JPEG (~640 px, luma q[0] = 1–6), while the fakes of 5
+generators are **PNG** (GPT-4o, Nano Banana, FLUX dev, FLUX Kontext, Kling) and those of 4 are **JPEG**
+(FLUX Krea, FLUX Pro, Minimax: q[0] = 2; Jimeng: q[0] = 8), all ~1024 px. So the PNG generators repeat
+Community Forensics' "JPEG ⇒ real" shortcut (section 3.2), and only the JPEG generators are a fair test.
+
+### 11.1 Results at the 5 % validation-FPR threshold (FNR, AUC; reals are the same COCO set for every row)
+
+FPR on the 9,000 COCO reals: A, LR 0.241; A, trees + aug 0.491; B 0.165; B + aug 0.123.
+
+| Generator (fake format) | A, LR | A, trees + aug | B | B + aug |
+|---|---|---|---|---|
+| all 9 | 0.441, AUC 0.648 | 0.285, AUC 0.687 | 0.336, AUC 0.829 | 0.391, AUC 0.854 |
+| GPT-4o (PNG) | 0.101, 0.914 | 0.087, 0.843 | 0.034, 0.962 | 0.121, 0.942 |
+| Nano Banana (PNG) | 0.141, 0.897 | 0.078, 0.829 | 0.109, 0.918 | 0.299, 0.869 |
+| FLUX dev (PNG) | 0.189, 0.874 | 0.144, 0.775 | 0.388, 0.816 | 0.450, 0.826 |
+| FLUX Kontext (PNG) | 0.060, 0.954 | 0.028, 0.937 | 0.137, 0.931 | 0.222, 0.928 |
+| Kling (PNG) | 0.214, 0.859 | 0.207, 0.728 | 0.120, 0.920 | 0.261, 0.896 |
+| FLUX Krea (JPEG) | 0.596, 0.636 | 0.074, 0.792 | 0.269, 0.882 | 0.340, 0.897 |
+| FLUX Pro (JPEG) | 0.973, 0.130 | 0.836, 0.305 | 0.789, 0.589 | 0.718, 0.710 |
+| Jimeng (JPEG) | 0.966, 0.105 | 0.883, 0.294 | 0.687, 0.673 | 0.605, 0.787 |
+| Minimax (JPEG) | 0.728, 0.485 | 0.229, 0.691 | 0.491, 0.775 | 0.502, 0.820 |
+
+Share of images flagged fake, by format (B + aug): reals (JPEG) 0.123, JPEG fakes 0.458, PNG fakes 0.730.
+For Method A, LR: 0.241, 0.184, 0.859.
+
+**Findings**
+- **Transfer is much better than on NTIRE, but partly through the format shortcut.** On PNG generators
+  every model reaches AUC 0.73–0.96; on JPEG generators Method A drops to AUC 0.11–0.79 and is far
+  *below chance* on FLUX Pro and Jimeng (0.10–0.31): it rates these JPEG fakes as more camera-like than
+  the COCO JPEG reals, the chroma-subsampling cue of section 7.2. Method B stays above chance on every
+  generator (AUC 0.59–0.90), so its signal is not only the format.
+- **The real images transfer better than NTIRE's.** B + aug flags 12 % of COCO reals (target 5 %),
+  vs. 56–60 % of clean NTIRE reals (section 10). COCO photos are camera JPEGs much like Community
+  Forensics' reals; NTIRE's reals were re-encoded and resized by the organisers.
+- **Hardest generators:** FLUX Pro and Jimeng (photorealistic, JPEG); B + aug misses 60–72 % of them.
+- **Consequence for the protocol:** report AIGI-Now per generator, with JPEG generators as the fair
+  subset; the JPEG-q75-normalised models (queued) remove the format difference entirely.
+
+## 12. Fixing the transfer: training with NTIRE data added (6. 11. 2026)
+
+**Question:** sections 10–11 show that models trained on Community Forensics (CF) alone do not transfer,
+mainly because of what they learned about *real* images. Does more varied training data fix it?
+
+**Setup** (`experiments/mixed.py`, 3 seeds): extra training source = NTIRE 2026 training set, shard 5 of 6
+(HF `deepfakesMSU/NTIRE-RobustAIGenDetection-train`, 27,643 JPEG images, web reals, part distorted; no
+per-image generator or distortion labels), split 80 / 10 / 10 % per seed. Two variants:
+- **CF + NTIRE:** CF train split (generators held out as in `classify`) + CF augmented copies + NTIRE train;
+- **NTIRE only:** NTIRE train alone (comparison).
+Threshold `val_fpr5` = 5 % FPR on the *pooled* validation reals (CF + NTIRE). Methods: A with boosted
+trees, B (CLIP probe). Test sets never used for training or thresholds: NTIRE validation set (same source as
+the NTIRE training data, so a weaker test), NTIRE public test set (2,500 images, labels public;
+`D:\datasets\ntire2026-aigi-test`) and AIGI-Now pixel subset (fully independent).
+Baseline = the CF-only augmented models of sections 10–11 (external rows: seed 0, CF thresholds; CF row: 5-seed mean, section 6).
+
+### 12.1 AUC (mean of 3 seeds; baseline seed 0)
+
+| Test set | A, CF only | A, CF + NTIRE | A, NTIRE only | B, CF only | B, CF + NTIRE | B, NTIRE only |
+|---|---|---|---|---|---|---|
+| CF, unseen generators | 0.938 | 0.941 | — | 0.989 | 0.987 | — |
+| NTIRE train shard, held-out 10 % | — | 0.886 | 0.932 | — | 0.910 | 0.952 |
+| NTIRE validation set | 0.518 | 0.728 | 0.770 | 0.563 | 0.747 | 0.824 |
+| NTIRE public test set | 0.513 | 0.623 | 0.651 | 0.452 | 0.595 | 0.709 |
+| AIGI-Now, all 9 generators | 0.687 | 0.738 | 0.530 | 0.854 | 0.899 | 0.882 |
+| AIGI-Now, 4 JPEG generators (fair) | 0.29–0.79 | 0.55–0.67 | 0.52–0.95 | 0.71–0.90 | 0.84–0.93 | 0.81–0.99 |
+
+AIGI-Now per JPEG generator, B: FLUX Krea 0.897 → 0.873 (CF + NTIRE) / 0.820 (NTIRE only); FLUX Pro 0.710 →
+0.840 / 0.915; Jimeng 0.787 → 0.928 / 0.985; Minimax 0.820 → 0.840 / 0.807.
+NTIRE subsets, B (CF + NTIRE): val clean 0.851, val distorted 0.691, hard clean 0.743, hard distorted 0.566;
+public test clean 0.689, distorted 0.526. NTIRE only: public test clean 0.814, distorted 0.597.
+
+### 12.2 Error rates at the pooled 5 % validation-FPR threshold (FPR / FNR)
+
+| Test set | A, CF + NTIRE | A, NTIRE only | B, CF + NTIRE | B, NTIRE only |
+|---|---|---|---|---|
+| CF, unseen generators | 0.028 / 0.390 | — | 0.012 / 0.154 | — |
+| NTIRE validation set | 0.187 / 0.513 | 0.066 / 0.640 | 0.312 / 0.318 | 0.136 / 0.425 |
+| NTIRE public test set | 0.240 / 0.619 | 0.111 / 0.731 | 0.425 / 0.458 | 0.183 / 0.563 |
+| AIGI-Now, all | 0.271 / 0.410 | 0.045 / 0.840 | 0.036 / 0.540 | 0.021 / 0.603 |
+
+**Findings**
+- **More varied training data helps Method B on the fully independent set without hurting CF.** AIGI-Now
+  AUC 0.854 → 0.899, and the two hardest photorealistic JPEG generators improve most (FLUX Pro
+  0.71 → 0.84, Jimeng 0.79 → 0.93); CF unseen-generator AUC is unchanged (0.989 → 0.987).
+- **NTIRE improves, but stays far from solved.** NTIRE val 0.56 → 0.75 (same source as the added data,
+  so partly in-distribution), public test 0.45 → 0.60. **Distorted images stay much weaker** (AUC
+  0.52–0.75) in every variant: the distortions are the remaining main weakness.
+- **NTIRE-only training is better on NTIRE** (public test 0.71) **and on AIGI-Now's JPEG generators**
+  (Jimeng 0.985), but **Method A trained on NTIRE only fails on AIGI-Now's PNG generators** (AUC
+  0.23–0.47): trained on all-JPEG data, its trees learned that missing JPEG traces mean "real", the
+  mirror image of the CF shortcut. CLIP (B) does not show this (AUC 0.78–0.94 on the PNG generators).
+- **The pooled threshold is a compromise.** NTIRE reals score higher than CF reals, so the pooled
+  threshold rises: CF FPR falls to 1.2 % but CF unseen FNR rises from 5.9 % (CF-only, section 6) to
+  15.4 %, while NTIRE FPR stays at 31–43 %. One threshold does not hold its FPR across sources, the same
+  calibration issue as under post-processing (6.2, 8.1).
+- **Method B stays ahead of Method A** in every setting, and A remains format-sensitive.
+- Caveats: one NTIRE shard (of 6), 3 seeds; NTIRE has no generator labels, so the NTIRE train split is
+  by image, not by generator; the gradient-boosted trees may again hit the iteration cap (section 5).
+
+## 13. Open issues / next steps
 
 - Format-controlled evaluation as the reference protocol (9.1): normalised input, and/or JPEG fakes from
   several generators. Combine normalisation with augmentation, and test other normalisation qualities.

@@ -1,0 +1,45 @@
+{
+  "args": {
+    "methods": [
+      "a_gbt",
+      "b"
+    ],
+    "extra": [
+      [
+        "ntire2026_train",
+        "D:/datasets/ntire2026-aigi-train",
+        "manifest.csv"
+      ]
+    ],
+    "test": [
+      [
+        "ntire2026_val",
+        "D:/datasets/ntire2026-aigi-val",
+        "manifest.csv"
+      ],
+      [
+        "ntire2026_test",
+        "D:/datasets/ntire2026-aigi-test",
+        "manifest.csv"
+      ],
+      [
+        "aigi_now_pixel",
+        "D:/datasets/aigi-now",
+        "manifest_pixel.csv"
+      ]
+    ],
+    "no_cf": true,
+    "train_aug": false,
+    "holdout": 0.3,
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "C": 1.0
+  },
+  "method": "a_gbt",
+  "seed": 2,
+  "n_train": 22114,
+  "val_threshold": 0.8423008083417965
+}

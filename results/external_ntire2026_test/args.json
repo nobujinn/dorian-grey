@@ -1,0 +1,14 @@
+{
+  "name": "ntire2026_test",
+  "root": "D:\\datasets\\ntire2026-aigi-test",
+  "manifest": "manifest.csv",
+  "input": null,
+  "runs": null,
+  "n": 2500,
+  "models": {
+    "method_a": "20261030-185240",
+    "method_a_gbt_aug": "20261030-185726",
+    "method_b": "20261030-190246",
+    "method_b_aug": "20261030-190308"
+  }
+}
