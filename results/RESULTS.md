@@ -18,6 +18,7 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `method_a_aug/`, `method_b_aug/`, `robustness_a_aug/`, `robustness_b_aug/` | Same experiments with training-time augmentation (section 4) |
 | `method_a_gbt/`, `method_a_gbt_aug/`, `robustness_a_gbt/`, `robustness_a_gbt_aug/` | Method A with gradient-boosted trees instead of logistic regression (section 5) |
 | `external_ntire2026_val/`, `external_ntire2026_test/`, `external_aigi_now_pixel/` | Independent test sets (sections 10–11): metrics per subset and threshold, flag rate per format |
+| `external_ntire2026_val_norm-jpeg75/`, `external_aigi_now_pixel_norm-jpeg75/` | Format-normalised models on the independent sets (section 13) |
 | `mixed_ntire2026_train_aug/`, `mixed_ntire2026_train_nocf/` | Training with NTIRE data added (section 12): metrics per method, seed, test set and subset |
 | `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
 | `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
@@ -854,7 +855,47 @@ public test clean 0.689, distorted 0.526. NTIRE only: public test clean 0.814, d
 - Caveats: one NTIRE shard (of 6), 3 seeds; NTIRE has no generator labels, so the NTIRE train split is
   by image, not by generator; the gradient-boosted trees may again hit the iteration cap (section 5).
 
-## 13. Open issues / next steps
+## 13. Format-normalised models on the independent sets (7. 11. 2026)
+
+The models of section 9 (every image re-encoded as JPEG q75 before feature extraction, CF only, no
+augmentation; seed 0, CF thresholds) on NTIRE validation and AIGI-Now, with the same re-encoding applied
+to the test images (`external --input jpeg75`). This removes any file-format difference between the
+classes, also on AIGI-Now (section 11: JPEG reals vs. partly PNG fakes).
+
+### 13.1 AUC (FPR / FNR at the 5 % validation-FPR threshold in brackets for "all")
+
+| Test set | A, LR | A, LR, norm. | A, trees, norm. | B | B, norm. |
+|---|---|---|---|---|---|
+| NTIRE val, all | 0.440 | 0.516 (0.388 / 0.583) | 0.535 (0.529 / 0.411) | 0.521 | 0.547 (0.726 / 0.239) |
+| AIGI-Now, all | 0.648 | 0.813 (0.042 / 0.627) | 0.866 (0.055 / 0.502) | 0.829 | 0.870 (0.071 / 0.510) |
+| AIGI-Now, FLUX Krea (JPEG) | 0.636 | 0.942 | 0.960 | 0.882 | 0.921 |
+| AIGI-Now, FLUX Pro (JPEG) | 0.130 | 0.753 | 0.817 | 0.589 | 0.849 |
+| AIGI-Now, Jimeng (JPEG) | 0.105 | 0.727 | 0.803 | 0.673 | 0.903 |
+| AIGI-Now, Minimax (JPEG) | 0.485 | 0.898 | 0.921 | 0.775 | 0.869 |
+| AIGI-Now, 5 PNG generators | 0.86–0.95 | 0.71–0.92 | 0.78–0.95 | 0.82–0.96 | 0.79–0.94 |
+
+("A, LR" and "B" = the clean-input models of sections 10–11; the clean-input tree model was only evaluated
+with augmentation, AUC 0.687.) Flagged as fake on AIGI-Now after normalisation (B): reals 0.071, JPEG fakes
+0.524, PNG fakes 0.462; Method A, trees: 0.055, 0.538, 0.465 (clean-input A, LR: 0.241, 0.184, 0.859).
+
+**Findings**
+- **On AIGI-Now, normalisation removes the format shortcut and Method A recovers.** Method A is no longer
+  below chance on any generator: FLUX Pro 0.13 → 0.82 and Jimeng 0.11 → 0.80 (trees). JPEG fakes are now
+  flagged at least as often as PNG fakes, so the decision no longer follows the file format. Overall
+  AUC rises for both methods (A 0.65 → 0.87, B 0.83 → 0.87), so the clean-input AIGI-Now numbers were not
+  simply inflated by the shortcut. The shortcut *hurt* on the JPEG generators more than it helped on the
+  PNG ones.
+- **The CF threshold holds on COCO reals** (FPR 4–7 % vs. target 5 %), unlike on NTIRE.
+- **With format controlled, Method A (trees) matches Method B on AIGI-Now** (AUC 0.866 vs. 0.870;
+  better on FLUX Krea and Minimax, worse on Jimeng and FLUX Pro). On CF, B remained clearly better (9.1).
+- **NTIRE stays at chance** (AUC 0.50–0.56) and its reals are still flagged (FPR 39–73 %): NTIRE's
+  problem is not the file format but the real-image source and processing (sections 10, 12). Only adding
+  NTIRE-like training data helps there (section 12).
+- **Consequence:** the format-controlled protocol (section 9) is the fairer one and also transfers better;
+  it supports making it the reference protocol (supervisor question 7). Next: combine normalisation with
+  the NTIRE training data and augmentation.
+
+## 14. Open issues / next steps
 
 - Format-controlled evaluation as the reference protocol (9.1): normalised input, and/or JPEG fakes from
   several generators. Combine normalisation with augmentation, and test other normalisation qualities.
