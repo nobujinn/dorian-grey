@@ -33,6 +33,7 @@ from dorian_gray.experiments.classify import (OPERATING_POINTS, TARGET_FPR, eval
 from dorian_gray.experiments.external import extract, load_manifest
 from dorian_gray.methods import METHODS
 from dorian_gray.metrics import binary_metrics, threshold_at_fpr
+from dorian_gray.perturb import AUG_SCHEMES, aug_suffix
 
 
 def load_set(name: str, root: str, manifest: str, features: str, suffix: str = "") -> pd.DataFrame:
@@ -46,12 +47,13 @@ def load_set(name: str, root: str, manifest: str, features: str, suffix: str = "
     return df
 
 
-def prefetch(sets: list[tuple[str, str, str]], features: list[str], normalize: str | None = None) -> None:
-    """Extract every missing feature cache in one pass over each set's images."""
-    suffix = f"_norm-{normalize}" if normalize else ""
+def prefetch(sets: list[tuple[str, str, str]], features: list[str], normalize: str | None = None,
+             augment: str | None = None) -> None:
+    """Extract every missing feature cache in one pass over each set's images (augmented copies: `augment`)."""
+    suffix = (f"_norm-{normalize}" if normalize else "") + (aug_suffix(augment) if augment else "")
     for name, root, manifest in sets:
         extract(load_manifest(Path(root), manifest), features,
-                CACHE_DIR / "features" / "external" / (name + suffix), normalize)
+                CACHE_DIR / "features" / "external" / (name + suffix), normalize, augment=augment)
 
 
 def split_extra(df: pd.DataFrame, seed: int) -> pd.Series:
@@ -76,13 +78,17 @@ def run(args, method_key: str, seed: int, out: Path) -> list[dict]:
     suffix = f"_norm-{args.input}" if args.input else ""
     extras = [load_set(*e, method.features, suffix).assign(part=lambda d: split_extra(d, seed)) for e in args.extra]
     train = [e[e.part == "train"][["features", "label"]] for e in extras]
+    if args.aug_extra:  # augmented copies of the extra sets' training images (same manifest order)
+        for e_args, e in zip(args.extra, extras):
+            aug = load_set(*e_args, method.features, suffix + aug_suffix(args.aug_scheme))
+            train.append(aug[(e.part == "train").to_numpy()][["features", "label"]])
     val_reals = [e[(e.part == "val") & (e.label == 0)] for e in extras]
     cf = None
     if not args.no_cf:
         cf = load_split(method.features + suffix, args.holdout, seed)
         train.append(cf[cf.part == "train"][["features", "label"]])
         if args.train_aug:
-            aug = load_augmented(method.features + suffix, cf)
+            aug = load_augmented(method.features + suffix, cf, args.aug_scheme)
             train.append(aug[aug.part == "train"][["features", "label"]])
     train = pd.concat(train, ignore_index=True)
     model = method.classifier(args.C).fit(features_matrix(train), train["label"])
@@ -130,6 +136,8 @@ def main():
                     help="independent test set, never used for training or thresholds")
     ap.add_argument("--no-cf", action="store_true", help="train on the extra sets only (comparison)")
     ap.add_argument("--train-aug", action="store_true", help="also the augmented Community Forensics copies")
+    ap.add_argument("--aug-extra", action="store_true", help="also augmented copies of the extra sets' training images")
+    ap.add_argument("--aug-scheme", choices=AUG_SCHEMES, default="rj", help="rj: resize + JPEG; deg: + blur, noise")
     ap.add_argument("--holdout", type=float, default=0.3)
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     ap.add_argument("--C", type=float, default=1.0)
@@ -137,8 +145,12 @@ def main():
     args = ap.parse_args()
     assert args.extra or not args.no_cf, "nothing to train on"
 
-    prefetch(args.extra + args.test, sorted({METHODS[m].features for m in args.methods}), args.input)
-    tag = ("mixed_" + "+".join(e[0] for e in args.extra) + ("_aug" if args.train_aug else "")
+    features = sorted({METHODS[m].features for m in args.methods})
+    prefetch(args.extra + args.test, features, args.input)
+    if args.aug_extra:
+        prefetch(args.extra, features, args.input, augment=args.aug_scheme)
+    tag = ("mixed_" + "+".join(e[0] for e in args.extra) + (aug_suffix(args.aug_scheme) if args.train_aug else "")
+           + ("_augextra" if args.aug_extra else "")
            + ("_nocf" if args.no_cf else "") + (f"_norm-{args.input}" if args.input else ""))
     out = RUNS_DIR / tag / datetime.now().strftime("%Y%m%d-%H%M%S")
     rows = [r for m in args.methods for s in args.seeds for r in run(args, m, s, out / m / f"seed{s}")]

@@ -6,7 +6,9 @@
 Method B (CLIP probe) gives the decision: it is the more reliable detector in every experiment
 (results log sections 4, 6, 8, 9). Method A (forensic features, boosted trees) explains it: TreeSHAP
 contributions summed per feature group say which measurable properties look synthetic or camera-like.
-Both use the threshold fixed on Community Forensics validation data (5 % false-positive rate).
+Default models (results log 14, 16; supervisor question 7): every image re-encoded as JPEG q75 before feature
+extraction (removes the file-format shortcut), trained on Community Forensics + NTIRE training data with
+augmentation; threshold for a 5 % false-positive rate on the pooled validation reals.
 Scores are not calibrated probabilities yet (calibration is a planned step), and the report says so.
 
 The models come from experiment runs and are copied to models/ (git-ignored) by `export_models`.
@@ -22,7 +24,8 @@ from PIL import Image
 from dorian_gray.config import REPO_ROOT, RUNS_DIR
 
 MODELS_DIR = REPO_ROOT / "models"
-DEFAULT_RUNS = {"a": "method_a_gbt_aug", "b": "method_b_aug"}  # best variant of each method (results log 5, 4)
+# experiment folder [/ path of the method inside its latest run]; `classify` runs keep seeds at the top level
+DEFAULT_RUNS = {"a": "mixed_ntire2026_train_aug_norm-jpeg75/a_gbt", "b": "mixed_ntire2026_train_aug_norm-jpeg75/b"}
 
 # plain-language names of Method A's feature groups (methods/forensic.py)
 GROUP_TEXT = {
@@ -38,10 +41,12 @@ def export_models(runs: dict[str, str] = DEFAULT_RUNS, seed: int = 0, out_dir: P
     out_dir.mkdir(parents=True, exist_ok=True)
     meta = {}
     for method, tag in runs.items():
-        run = sorted(p for p in (RUNS_DIR / tag).iterdir() if p.is_dir())[-1]
-        info = json.loads((run / f"seed{seed}" / "metrics.json").read_text())
-        shutil.copy2(run / f"seed{seed}" / "model.joblib", out_dir / f"method_{method}.joblib")
-        meta[method] = {"run": f"{tag}/{run.name}/seed{seed}", "threshold": info["val_threshold"],
+        experiment, _, inner = tag.partition("/")
+        run = sorted(p for p in (RUNS_DIR / experiment).iterdir() if p.is_dir())[-1]
+        src = run / inner / f"seed{seed}"
+        info = json.loads((src / "metrics.json").read_text())
+        shutil.copy2(src / "model.joblib", out_dir / f"method_{method}.joblib")
+        meta[method] = {"run": src.relative_to(RUNS_DIR).as_posix(), "threshold": info["val_threshold"],
                         "val_fpr_target": 0.05, "input": info["args"].get("input")}
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2))
 
@@ -60,9 +65,13 @@ class Detector:
         self._extractors = {}
 
     def _extract(self, method: str, image: Image.Image) -> np.ndarray:
+        """Features of the image after the model's input normalisation (e.g. JPEG q75 re-encoding)."""
         if method not in self._extractors:
             from dorian_gray.methods import METHODS
             self._extractors[method] = METHODS[method].extractor()
+        if self.meta[method].get("input"):
+            from dorian_gray.perturb import apply
+            image = apply(image, self.meta[method]["input"])
         return self._extractors[method]([image]).astype(np.float32)
 
     def _method_a(self, image: Image.Image) -> dict:
@@ -94,6 +103,7 @@ class Detector:
         main = report["methods"].get("b") or report["methods"]["a"]
         report["verdict"], report["score"] = main["verdict"], main["score"]
         report["score_note"] = "uncalibrated score in [0, 1]; threshold set for 5 % false positives on validation data"
+        report["normalised"] = any(self.meta[m].get("input") for m in self.models)
         report["explanation"] = explain_text(report)
         return report
 
@@ -113,7 +123,7 @@ def explain_text(report: dict) -> list[str]:
             strength = "strongly" if abs(v) >= 1.5 else "slightly" if abs(v) < 0.5 else "clearly"
             side = "synthetic" if v > 0 else "camera-like"
             lines.append(f"  - {GROUP_TEXT[g]}: {strength} {side} ({v:+.2f})")
-    if report.get("format") == "JPEG":
+    if report.get("format") == "JPEG" and not report.get("normalised"):
         lines.append("Note: the image is JPEG-compressed. Compression hides generator traces, so Method A "
                      "tends to call JPEG fakes real (results log sections 3.2, 7.2).")
     return lines

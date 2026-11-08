@@ -29,7 +29,7 @@ from dorian_gray.experiments.classify import (OPERATING_POINTS, features_matrix,
 from dorian_gray.features import iter_shard
 from dorian_gray.methods import METHODS
 from dorian_gray.metrics import binary_metrics
-from dorian_gray.perturb import CONDITIONS, apply
+from dorian_gray.perturb import AUG_SCHEMES, CONDITIONS, apply, aug_suffix
 
 PERTURBED = [c for c in CONDITIONS if c != "clean"]
 
@@ -91,6 +91,7 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--C", type=float, default=1.0)
     ap.add_argument("--train-aug", action="store_true", help="classifier also trained on augmented copies")
+    ap.add_argument("--aug-scheme", choices=AUG_SCHEMES, default="rj")
     ap.add_argument("--input", default=None, help="input normalisation after each perturbation, e.g. jpeg75")
     args = ap.parse_args()
 
@@ -98,7 +99,7 @@ def main():
     features = method.features + (f"_norm-{args.input}" if args.input else "")
     cache = f"{features}_robust"
     df = load_split(features, args.holdout, args.seed)
-    probe = fit_probe(df, method.classifier(args.C), load_augmented(features, df) if args.train_aug else None)
+    probe = fit_probe(df, method.classifier(args.C), load_augmented(features, df, args.aug_scheme) if args.train_aug else None)
     val = df.part == "val"
     df.loc[val, "p_fake"] = probe.predict_proba(features_matrix(df[val]))[:, 1]
     thresholds = dict(zip(OPERATING_POINTS, [0.5, val_threshold(df)]))
@@ -119,7 +120,7 @@ def main():
         by_format.append(flagged.reset_index().assign(condition=c))
     metrics, by_format = pd.DataFrame(metrics), pd.concat(by_format)
 
-    tag = f"robustness_{args.method}" + ("_aug" if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "")
+    tag = f"robustness_{args.method}" + (aug_suffix(args.aug_scheme) if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "")
     out = RUNS_DIR / tag / datetime.now().strftime("%Y%m%d-%H%M%S")
     out.mkdir(parents=True)
     (out / "args.json").write_text(json.dumps({**vars(args), "thresholds": thresholds}, indent=2))

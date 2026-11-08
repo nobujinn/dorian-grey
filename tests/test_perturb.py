@@ -38,9 +38,20 @@ def test_random_augment_is_deterministic_and_in_range():
     from dorian_gray.perturb import random_augment
     params = [random_augment(_image("RGB"), np.random.default_rng([1, s]))[1] for s in range(200)]
     assert params == [random_augment(_image("RGB"), np.random.default_rng([1, s]))[1] for s in range(200)]
-    qualities, scales = zip(*params)
+    qualities, scales = [p["jpeg_quality"] for p in params], [p["scale"] for p in params]
     assert all(q == 0 or 30 <= q <= 100 for q in qualities) and all(0.5 <= s <= 1.5 for s in scales)
     assert 0.35 < np.mean([q > 0 for q in qualities]) < 0.65 and 0.35 < np.mean([s != 1 for s in scales]) < 0.65
+
+
+def test_deg_augment_adds_blur_and_noise():
+    from dorian_gray.perturb import random_augment
+    params = [random_augment(_image("RGB"), np.random.default_rng([1, s]), "deg")[1] for s in range(300)]
+    blur, noise = np.array([p["blur_sigma"] for p in params]), np.array([p["noise_sigma"] for p in params])
+    assert ((blur == 0) | ((blur >= 0.5) & (blur <= 2))).all() and ((noise == 0) | ((noise >= 1) & (noise <= 6))).all()
+    assert 0.2 < (blur > 0).mean() < 0.4 and 0.2 < (noise > 0).mean() < 0.4
+    # the original scheme draws exactly as before: deg does not change rj caches
+    rj = [random_augment(_image("RGB"), np.random.default_rng([1, s]))[1] for s in range(20)]
+    assert all(set(p) == {"jpeg_quality", "scale"} for p in rj)
 
 
 def test_unseen_operations():

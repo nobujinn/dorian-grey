@@ -39,8 +39,10 @@ report = detect("photo.jpg")   # verdict, score, per-method scores, Method A evi
 ```
 
 Method B (CLIP probe) gives the verdict; Method A (forensic features, boosted trees) explains it with
-TreeSHAP contributions per feature group. Scores are not calibrated yet. Models are trained by the
-experiments below; `models/` is not part of the repository.
+TreeSHAP contributions per feature group. The default models re-encode every image as JPEG q75 before
+feature extraction and are trained on Community Forensics + NTIRE training data with augmentation
+(`mixed --input jpeg75 --train-aug`); the detector applies the same re-encoding. Scores are not calibrated
+yet. Models are trained by the experiments below; `models/` is not part of the repository.
 
 ## Data
 
@@ -83,7 +85,9 @@ uv run python -m dorian_gray.experiments.external --name <set> --root D:/dataset
 
 Training with an extra labelled source (e.g. the NTIRE 2026 training set) next to Community Forensics,
 tested on independent sets; `--no-cf` trains on the extra source only, `--input jpeg75` re-encodes every
-image first:
+image first, `--train-aug` / `--aug-extra` add augmented copies of Community Forensics / the extra sets
+(`--aug-scheme deg` adds random blur and noise to the resize + JPEG augmentation). More NTIRE shards:
+`uv run python -m dorian_gray.data.ntire --shards 0`.
 
 ```
 uv run python -m dorian_gray.experiments.mixed --train-aug \

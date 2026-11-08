@@ -57,12 +57,13 @@ def iter_shard(path: Path, rows: np.ndarray, batch_size: int = 32) -> Iterator[t
 
 
 def extract_shard(path: Path, extractors: dict[str, tuple], max_images: int | None = None,
-                  batch_size: int = 32, augment_seed: int | None = None, normalize: str | None = None) -> None:
+                  batch_size: int = 32, augment_seed: int | None = None, normalize: str | None = None,
+                  augment_scheme: str = "rj") -> None:
     """Embed (a seeded sample of) a shard once per extractor; extractors whose cache exists are skipped.
 
     extractors: cache name -> (callable images -> (N, D) array, storage dtype). Several extractors share
     one read of the shard, and all of them see exactly the same (possibly augmented) images.
-    augment_seed: if set, every image is first randomly resized / recompressed (`perturb.random_augment`),
+    augment_seed: if set, every image is first randomly degraded (`perturb.random_augment` with `augment_scheme`),
     deterministically per (seed, shard, row); the applied parameters are stored next to the features.
     normalize: a `perturb.CONDITIONS` name applied to every image first (input normalisation, e.g.
     re-encoding every image as JPEG so that real and fake images share one compression history).
@@ -76,7 +77,7 @@ def extract_shard(path: Path, extractors: dict[str, tuple], max_images: int | No
     with tqdm(total=len(rows), desc=path.stem) as bar:
         for meta, images in iter_shard(path, rows, batch_size):
             if augment_seed is not None:
-                aug = [random_augment(im, np.random.default_rng([augment_seed, shard_key, int(r)]))
+                aug = [random_augment(im, np.random.default_rng([augment_seed, shard_key, int(r)]), augment_scheme)
                        for im, r in zip(images, rows[pos:pos + len(images)])]
                 images = [im for im, _ in aug]
                 params.extend(prm for _, prm in aug)
@@ -87,10 +88,7 @@ def extract_shard(path: Path, extractors: dict[str, tuple], max_images: int | No
                 feats[n].append(fn(images).astype(dtype))
             names.extend(meta["image_name"].tolist())
             bar.update(len(images))
-    extra = {}
-    if params:
-        quality, scale = zip(*params)
-        extra = {"jpeg_quality": np.array(quality), "scale": np.array(scale)}
+    extra = {k: np.array([prm[k] for prm in params]) for k in params[0]} if params else {}
     for n in todo:
         out = CACHE_DIR / "features" / n / f"{path.stem}.npz"
         out.parent.mkdir(parents=True, exist_ok=True)

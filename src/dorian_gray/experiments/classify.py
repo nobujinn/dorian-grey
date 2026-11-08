@@ -11,7 +11,7 @@ probe's probability, and the threshold at which 5 % of the *validation* reals ar
 
 Usage: uv run python -m dorian_gray.experiments.classify --method {a,a_gbt,b} [--seeds 0 1 2 3 4]
        [--groups spectrum periodic residual dct]   (method A only: feature-group ablation)
-       [--train-aug]   (also train on augmented copies, see `prepare --augment`)
+       [--train-aug [--aug-scheme deg]]   (also train on augmented copies, see `prepare --augment`)
        [--input jpeg75]   (every image re-encoded before extraction, see `prepare --normalize`)
 """
 
@@ -28,6 +28,7 @@ from dorian_gray.config import RUNS_DIR
 from dorian_gray.data.community_forensics import LOCAL_DIR, load_manifest
 from dorian_gray.features import load_cached
 from dorian_gray.methods import METHODS
+from dorian_gray.perturb import AUG_SCHEMES, aug_suffix
 from dorian_gray.metrics import binary_metrics, threshold_at_fpr
 
 TARGET_FPR = 0.05
@@ -76,9 +77,9 @@ def fit_probe(df: pd.DataFrame, classifier, augmented: pd.DataFrame | None = Non
     return classifier.fit(features_matrix(train), train["label"])
 
 
-def load_augmented(features: str, df: pd.DataFrame) -> pd.DataFrame:
-    """Features of the augmented copies (`prepare --augment`), with the split of `df` attached."""
-    aug = load_cached(f"{features}_aug", sorted(df.shard.unique()))
+def load_augmented(features: str, df: pd.DataFrame, scheme: str = "rj") -> pd.DataFrame:
+    """Features of the augmented copies (`prepare --augment [--aug-scheme]`), with the split of `df` attached."""
+    aug = load_cached(features + aug_suffix(scheme), sorted(df.shard.unique()))
     return aug.merge(df[["shard", "row", "label", "part"]], on=["shard", "row"], validate="1:1")
 
 
@@ -110,7 +111,7 @@ def run(args, seed: int, out) -> dict:
     features = method.features + (f"_norm-{args.input}" if args.input else "")
     df = load_split(features, args.holdout, seed)
     names = select_groups(df, args.groups) if method.features == "forensic_v1" else None
-    augmented = load_augmented(features, df) if args.train_aug else None
+    augmented = load_augmented(features, df, args.aug_scheme) if args.train_aug else None
     if augmented is not None and names is not None:
         select_groups(augmented, args.groups)
     probe = fit_probe(df, method.classifier(args.C), augmented)
@@ -157,6 +158,7 @@ def main():
                     help="method A feature groups to use (ablation)")
     ap.add_argument("--train-aug", action="store_true",
                     help="also train on the augmented (resized / recompressed) copies of the training images")
+    ap.add_argument("--aug-scheme", choices=AUG_SCHEMES, default="rj", help="rj: resize + JPEG; deg: + blur, noise")
     ap.add_argument("--input", default=None, help="input normalisation applied to every image (`prepare --normalize`)")
     ap.add_argument("--holdout", type=float, default=0.3, help="fraction of fake generators held out")
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4],
@@ -164,7 +166,7 @@ def main():
     ap.add_argument("--C", type=float, default=1.0)
     args = ap.parse_args()
 
-    tag = f"method_{args.method}" + ("" if args.method == "b" or len(args.groups) == 4 else "_" + "+".join(args.groups)) + ("_aug" if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "")
+    tag = f"method_{args.method}" + ("" if args.method == "b" or len(args.groups) == 4 else "_" + "+".join(args.groups)) + (aug_suffix(args.aug_scheme) if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "")
     out = RUNS_DIR / tag / datetime.now().strftime("%Y%m%d-%H%M%S")
     rows = [{"seed": seed, "threshold": op, "set": k, **v} for seed in args.seeds
             for op, r in run(args, seed, out / f"seed{seed}").items() for k, v in r.items()]

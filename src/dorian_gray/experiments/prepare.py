@@ -13,6 +13,7 @@ Usage: uv run python -m dorian_gray.experiments.prepare --method a b [--augment]
   --normalize re-encodes every image with one `perturb.CONDITIONS` operation before extraction
   (cache name <features>_norm-<condition>), used by `classify --input <condition>`.
   Both together: the random distortion first, then the normalisation (cache <features>_norm-<condition>_aug).
+  --aug-scheme deg adds random blur and noise (cache suffix _aug-deg instead of _aug).
 """
 
 import argparse
@@ -22,7 +23,7 @@ import pandas as pd
 from dorian_gray.data.community_forensics import LOCAL_DIR, download_shards
 from dorian_gray.features import extract_shard
 from dorian_gray.methods import METHODS
-from dorian_gray.perturb import CONDITIONS
+from dorian_gray.perturb import AUG_SCHEMES, CONDITIONS, aug_suffix
 
 REAL_SHARDS = [
     "HFCF_small_117.parquet", "HFCF_small_125.parquet", "HFCF_small_133.parquet", "HFCF_small_141.parquet",  # JPEG, small
@@ -52,6 +53,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--method", choices=METHODS, nargs="+", required=True)
     ap.add_argument("--augment", action="store_true")
+    ap.add_argument("--aug-scheme", choices=AUG_SCHEMES, default="rj", help="rj: resize + JPEG; deg: + blur, noise")
     ap.add_argument("--normalize", choices=[c for c in CONDITIONS if c != "clean"])
     args = ap.parse_args()
 
@@ -60,11 +62,12 @@ def main():
     print(f"{len(REAL_SHARDS) + len(FAKE_SHARDS)} shards, {sizes[REAL_SHARDS + FAKE_SHARDS].sum() / 1e9:.1f} GB")
     paths = download_shards(REAL_SHARDS + FAKE_SHARDS)
     # <features>_norm-<condition>_aug: what `classify` / `mixed` load for `--input <condition> --train-aug`
-    suffix = (f"_norm-{args.normalize}" if args.normalize else "") + ("_aug" if args.augment else "")
+    suffix = (f"_norm-{args.normalize}" if args.normalize else "") + (aug_suffix(args.aug_scheme) if args.augment else "")
     extractors = {METHODS[m].features + suffix: (METHODS[m].extractor(), METHODS[m].cache_dtype) for m in args.method}
     for path in paths:
         extract_shard(path, extractors, MAX_REAL if path.name in REAL_SHARDS else MAX_FAKE,
-                      augment_seed=AUGMENT_SEED if args.augment else None, normalize=args.normalize)
+                      augment_seed=AUGMENT_SEED if args.augment else None, normalize=args.normalize,
+                      augment_scheme=args.aug_scheme)
 
 
 if __name__ == "__main__":

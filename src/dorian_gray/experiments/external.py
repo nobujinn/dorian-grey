@@ -14,6 +14,7 @@ Usage: uv run python -m dorian_gray.experiments.external --name chameleon --root
 
 import argparse
 import json
+import zlib
 from datetime import datetime
 from pathlib import Path
 
@@ -26,7 +27,7 @@ from tqdm import tqdm
 from dorian_gray.config import CACHE_DIR, RUNS_DIR
 from dorian_gray.methods import METHODS
 from dorian_gray.metrics import binary_metrics
-from dorian_gray.perturb import apply
+from dorian_gray.perturb import apply, random_augment
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 DEFAULT_RUNS = ["method_a", "method_a_gbt_aug", "method_b", "method_b_aug"]
@@ -45,8 +46,12 @@ def load_manifest(root: Path, manifest: str | None) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-def extract(df: pd.DataFrame, features: list[str], out_dir: Path, normalize: str | None, batch_size: int = 32):
-    """One pass over the images for every feature extractor whose cache is missing; also records the format."""
+def extract(df: pd.DataFrame, features: list[str], out_dir: Path, normalize: str | None, batch_size: int = 32,
+            augment: str | None = None, augment_seed: int = 1):
+    """One pass over the images for every feature extractor whose cache is missing; also records the format.
+
+    augment: an augmentation scheme (`perturb.random_augment`) applied before the normalisation, seeded per
+    (augment_seed, file name), so that augmented copies of a training set are reproducible."""
     todo = [f for f in features if not (out_dir / f"{f}.npz").exists()]
     if not todo:
         return
@@ -58,6 +63,9 @@ def extract(df: pd.DataFrame, features: list[str], out_dir: Path, normalize: str
             im = Image.open(p)
             im.load()
             formats.append(im.format or "unknown")
+            if augment:
+                im, _ = random_augment(im, np.random.default_rng([augment_seed, zlib.crc32(Path(p).name.encode())]),
+                                       augment)
             images.append(apply(im, normalize) if normalize else im)
         for f, (fn, dtype) in extractors.items():
             feats[f].append(fn(images).astype(dtype))
