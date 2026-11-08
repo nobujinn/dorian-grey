@@ -1,0 +1,111 @@
+{
+  "args": {
+    "method": "a_gbt",
+    "groups": [
+      "spectrum",
+      "periodic",
+      "residual",
+      "dct"
+    ],
+    "train_aug": true,
+    "input": "jpeg75",
+    "holdout": 0.3,
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "C": 1.0
+  },
+  "seed": 0,
+  "shards": [
+    "HFCF_small_0.parquet",
+    "HFCF_small_101.parquet",
+    "HFCF_small_117.parquet",
+    "HFCF_small_125.parquet",
+    "HFCF_small_133.parquet",
+    "HFCF_small_141.parquet",
+    "HFCF_small_157.parquet",
+    "HFCF_small_165.parquet",
+    "HFCF_small_173.parquet",
+    "HFCF_small_181.parquet",
+    "HFCF_small_20.parquet",
+    "HFCF_small_40.parquet",
+    "HFCF_small_60.parquet",
+    "HFCF_small_66.parquet",
+    "HFCF_small_67.parquet",
+    "HFCF_small_68.parquet",
+    "HFCF_small_69.parquet",
+    "HFCF_small_70.parquet",
+    "HFCF_small_71.parquet",
+    "HFCF_small_72.parquet",
+    "HFCF_small_73.parquet",
+    "HFCF_small_74.parquet",
+    "HFCF_small_75.parquet",
+    "HFCF_small_76.parquet",
+    "HFCF_small_77.parquet",
+    "HFCF_small_78.parquet",
+    "HFCF_small_79.parquet",
+    "HFCF_small_80.parquet",
+    "HFCF_small_81.parquet",
+    "HFCF_small_82.parquet",
+    "HFCF_small_83.parquet",
+    "HFCF_small_87.parquet",
+    "HFCF_small_88.parquet"
+  ],
+  "val_threshold": 0.6413063475232926,
+  "0.5": {
+    "val": {
+      "n_real": 1800,
+      "n_fake": 1393,
+      "accuracy": 0.8753523332289384,
+      "fpr": 0.09166666666666666,
+      "fnr": 0.167264895908112,
+      "auc": 0.9533345297918162
+    },
+    "test_seen": {
+      "n_real": 3600,
+      "n_fake": 2787,
+      "accuracy": 0.8755284170972287,
+      "fpr": 0.08916666666666667,
+      "fnr": 0.170075349838536,
+      "auc": 0.948986963281904
+    },
+    "test_unseen": {
+      "n_real": 3600,
+      "n_fake": 10068,
+      "accuracy": 0.6937371963710858,
+      "fpr": 0.08916666666666667,
+      "fnr": 0.3838895510528407,
+      "auc": 0.8723102624376462
+    }
+  },
+  "val_fpr5": {
+    "val": {
+      "n_real": 1800,
+      "n_fake": 1393,
+      "accuracy": 0.8697150015659255,
+      "fpr": 0.05,
+      "fnr": 0.23402727925340994,
+      "auc": 0.9533345297918162
+    },
+    "test_seen": {
+      "n_real": 3600,
+      "n_fake": 2787,
+      "accuracy": 0.8622201346485048,
+      "fpr": 0.05416666666666667,
+      "fnr": 0.24578399712952992,
+      "auc": 0.948986963281904
+    },
+    "test_unseen": {
+      "n_real": 3600,
+      "n_fake": 10068,
+      "accuracy": 0.6322066139888791,
+      "fpr": 0.05416666666666667,
+      "fnr": 0.47993643226062777,
+      "auc": 0.8723102624376462
+    }
+  }
+}

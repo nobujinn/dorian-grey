@@ -24,6 +24,7 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `faces_ff_c23/` | FaceForensics++ c23 face crops (section 15): `metrics.csv` per method, protocol, held-out manipulation, frame / video level |
 | `external_ff_c23_faces/` | Community Forensics models applied zero-shot to the face crops (section 15) |
 | `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
+| `method_{a_gbt,b}_aug_norm-jpeg75/`, `mixed_ntire2026_train_aug_norm-jpeg75/`, `robustness_*_norm-jpeg75/` | Augmentation with normalised input, robustness of the normalised models (section 16) |
 | `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
 | `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training), `robustness_classifier.pdf/.png` (A linear vs. A trees vs. B, augmented training), `robustness_unseen_ops.pdf/.png` (operations not used in training, section 8) |
 
@@ -998,7 +999,88 @@ CF thresholds, run `external_ff_c23_faces/20261108-061259`): AUC 0.479 (A LR), 0
 - Caveats: one split (official), no seeds; 8 frames per video; c23 only (no raw / c40); YuNet crops,
   not landmark-aligned.
 
-## 16. Open issues / next steps
+## 16. Augmentation with normalised input (8. 11. 2026)
+
+**Question:** section 14 left distorted images as the main weakness. Does training-time augmentation
+(section 4: random resize ×0.5–1.5 and JPEG q30–100, each with p = 0.5) help the normalised models?
+`prepare --augment --normalize jpeg75` caches one augmented copy of every CF image, **augmented first, then
+normalised** (the distortion happens before the image reaches the detector; cache `<features>_norm-jpeg75_aug`).
+Runs: `method_{a_gbt,b}_aug_norm-jpeg75` (5 seeds), `mixed_ntire2026_train_aug_norm-jpeg75/20261108-080759` (3 seeds).
+
+### 16.1 Community Forensics, clean test (5 seeds; without augmentation = section 9.1)
+
+| Method | Seen AUC | Unseen AUC | Seen FNR at 5 % val. FPR | Unseen FNR at 5 % val. FPR |
+|---|---|---|---|---|
+| A, trees, norm. | 0.944 ± 0.004 | 0.897 ± 0.012 | 0.273 ± 0.015 | 0.453 ± 0.015 |
+| A, trees, norm. + aug. | 0.939 ± 0.006 | 0.884 ± 0.016 | 0.290 ± 0.028 | 0.495 ± 0.029 |
+| B, norm. | 0.978 ± 0.004 | 0.968 ± 0.013 | 0.103 ± 0.021 | 0.140 ± 0.058 |
+| B, norm. + aug. | 0.978 ± 0.003 | 0.969 ± 0.014 | 0.103 ± 0.016 | 0.142 ± 0.062 |
+
+### 16.2 With NTIRE data (3 seeds; AUC, without → with augmentation; without = section 14)
+
+| Test set | A, trees | B |
+|---|---|---|
+| CF, unseen generators | 0.872 → 0.872 | 0.965 → 0.969 |
+| NTIRE train shard, held-out 10 % | 0.846 → 0.824 | 0.902 → 0.883 |
+| NTIRE validation set (clean / distorted parts) | 0.710 → 0.691 (0.805 → 0.778 / 0.653 → 0.644) | 0.747 → 0.720 (0.829 → 0.799 / 0.709 → 0.686) |
+| NTIRE public test set (clean / distorted) | 0.597 → 0.592 (0.654 → 0.641 / 0.540 → 0.545) | 0.591 → 0.562 (0.652 → 0.614 / 0.541 → 0.522) |
+| AIGI-Now, all (FPR at the pooled threshold) | 0.856 → 0.858 (0.034 → 0.032) | 0.891 → 0.893 (0.023 → 0.020) |
+
+**Findings**
+- **On clean images, augmentation changes nothing for the normalised models** (B unseen AUC 0.968 → 0.969;
+  A 0.897 → 0.884, about one standard deviation). Probably because JPEG q75 normalisation already gives every
+  image a common compression history, which is part of what augmentation taught before (section 4).
+- **It does not help on NTIRE; B even loses a little** (validation 0.747 → 0.720, public test 0.591 → 0.562),
+  on the clean parts at least as much as on the distorted ones. So the likely cause is not the handling of
+  distortions but the **change in the training mix**: the augmented CF copies double the CF part of the training set
+  (n_train 44,466 → 66,818), so NTIRE's share falls from 50 % to 33 %. AIGI-Now and CF are unchanged.
+- **Consequence:** resize + JPEG augmentation of CF does not model NTIRE's distortions; what helped on NTIRE
+  so far is NTIRE-like data (section 12). Next candidates: augmentation with the operations NTIRE uses
+  (blur, noise, …) applied to *both* sources, or more NTIRE shards; the robustness test of the normalised
+  models (16.3) shows whether augmentation still pays off against JPEG / resizing.
+
+### 16.3 Robustness of the normalised models (seed 0, same 3,000-image subset as 2.4 / 3.5)
+
+`robustness --input jpeg75 [--train-aug]`: each perturbation is applied to the original image, then the image is
+normalised (JPEG q75) as every input. Unseen generators, threshold fixed at 5 % FPR on clean validation reals.
+AUC (FPR / FNR); "clean input" = the augmented models of sections 4.3 / 5.3 / 6.2. Conditions below the line
+were never used in training.
+
+| Condition | B, clean input, aug. | B, norm. | B, norm. + aug. | A trees, clean input, aug. | A trees, norm. | A trees, norm. + aug. |
+|---|---|---|---|---|---|---|
+| none | 0.988 (0.055 / 0.055) | 0.967 (0.065 / 0.119) | 0.968 (0.058 / 0.134) | 0.943 (0.036 / 0.245) | 0.881 (0.048 / 0.451) | 0.875 (0.054 / 0.485) |
+| JPEG 95 | 0.979 (0.045 / 0.111) | 0.968 (0.081 / 0.105) | 0.969 (0.064 / 0.126) | 0.898 (0.052 / 0.405) | 0.883 (0.051 / 0.446) | 0.874 (0.056 / 0.481) |
+| JPEG 85 | 0.966 (0.051 / 0.150) | 0.956 (0.072 / 0.164) | 0.959 (0.052 / 0.182) | 0.841 (0.072 / 0.539) | 0.840 (0.041 / 0.595) | 0.847 (0.048 / 0.564) |
+| JPEG 75 | 0.962 (0.032 / 0.217) | 0.968 (0.064 / 0.119) | 0.968 (0.059 / 0.131) | 0.833 (0.052 / 0.601) | 0.881 (0.049 / 0.452) | 0.874 (0.054 / 0.484) |
+| JPEG 50 | 0.949 (0.077 / 0.181) | 0.948 (0.142 / 0.102) | 0.953 (0.076 / 0.189) | 0.840 (0.096 / 0.490) | 0.854 (0.094 / 0.443) | 0.861 (0.035 / 0.551) |
+| resize ×0.5 | 0.977 (0.199 / 0.022) | 0.945 (0.202 / 0.069) | 0.960 (0.171 / 0.069) | 0.846 (0.312 / 0.161) | 0.776 (0.301 / 0.299) | 0.801 (0.197 / 0.370) |
+| resize ×0.75 | 0.990 (0.099 / 0.023) | 0.961 (0.120 / 0.091) | 0.971 (0.107 / 0.076) | 0.902 (0.121 / 0.237) | 0.836 (0.182 / 0.313) | 0.849 (0.122 / 0.373) |
+| resize ×1.5 | 0.981 (0.197 / 0.018) | 0.933 (0.284 / 0.066) | 0.947 (0.196 / 0.076) | 0.871 (0.308 / 0.139) | 0.680 (0.673 / 0.119) | 0.796 (0.453 / 0.180) |
+| *blur σ=1* | 0.950 (0.419 / 0.021) | 0.929 (0.193 / 0.107) | 0.937 (0.159 / 0.115) | 0.772 (0.874 / 0.009) | 0.743 (0.700 / 0.085) | 0.716 (0.717 / 0.089) |
+| *noise σ=3* | 0.961 (0.197 / 0.053) | 0.961 (0.062 / 0.142) | 0.961 (0.049 / 0.177) | 0.837 (0.425 / 0.126) | 0.880 (0.035 / 0.507) | 0.873 (0.040 / 0.539) |
+| *WebP 75* | 0.943 (0.145 / 0.119) | 0.941 (0.302 / 0.041) | 0.943 (0.217 / 0.071) | 0.819 (0.067 / 0.608) | 0.850 (0.095 / 0.453) | 0.840 (0.103 / 0.510) |
+| *resize ×0.75 + JPEG 80* | 0.971 (0.050 / 0.121) | 0.955 (0.084 / 0.152) | 0.966 (0.070 / 0.134) | 0.814 (0.110 / 0.504) | 0.850 (0.076 / 0.465) | 0.857 (0.081 / 0.445) |
+
+**Findings**
+- **Compression and noise hardly change the ranking of the normalised models.** B keeps AUC 0.94–0.97 and A
+  0.84–0.88 under every JPEG quality, WebP, noise and resize + JPEG. Under noise the FPR also stays near its
+  target (B 0.197 → 0.062, A 0.425 → 0.035 vs. the clean-input models): the q75 re-encoding removes most of the
+  added noise. WebP still raises B's FPR (0.302; 0.217 with augmentation). Method A gains most from
+  normalisation: under JPEG 75 it misses 45 % instead of 60 % of unseen fakes.
+- **Blur and resampling still shift real images towards "fake"** (B FPR 0.16–0.28, A 0.45–0.72 under blur and
+  upscaling): normalisation cannot remove a change of the image content's frequency profile. Normalised B under
+  blur (FPR 0.193) is still much better than clean-input B (0.419), Method A remains unusable under blur.
+- **Augmentation still pays off against resizing:** with it, FPR under resize ×1.5 falls from 0.284 to 0.196 (B)
+  and from 0.673 to 0.453 (A; AUC 0.680 → 0.796), and under JPEG 50 / WebP from 0.142 / 0.302 to 0.076 / 0.217 (B).
+  On the clean test it costs nothing (16.1), so the normalised + augmented model is the better default.
+- **The price of normalisation is the clean, uncompressed case:** B misses 12–13 % instead of 5.5 % of unseen
+  fakes at 5 % FPR, A 45–49 % instead of 25 %. On this benchmark the clean-input B also keeps a higher AUC
+  under resizing (0.977–0.990 vs. 0.945–0.971) and is about equal under compression; clean-input A is better
+  without processing, under resizing and blur, worse under JPEG ≤ 75, WebP, noise and resize + JPEG. The case for
+  normalisation rests on the format shortcut (9) and the independent sets (13–14), not on this benchmark.
+- Caveat: one split, 3,000 images; the conditions are single operations at fixed strength.
+
+## 17. Open issues / next steps
 
 - Format-controlled evaluation as the reference protocol (9.1): normalised input, and/or JPEG fakes from
   several generators. Normalised input combined with NTIRE data is the best configuration so far (14);

@@ -8,7 +8,9 @@ change in FPR / FNR.
 
 Features are cached per shard with all conditions in one file, so an interrupted run resumes; conditions
 added to `perturb.CONDITIONS` later are computed and appended to the existing files.
-Usage: uv run python -m dorian_gray.experiments.robustness --method {a,b} [--n 1000] [--train-aug]
+`--input jpeg75`: models of `classify --input jpeg75`; every perturbed image is then normalised the same way
+(perturbation first: it happened before the image reached the detector).
+Usage: uv run python -m dorian_gray.experiments.robustness --method {a,b} [--n 1000] [--train-aug] [--input jpeg75]
 """
 
 import argparse
@@ -45,7 +47,8 @@ def robust_subset(df: pd.DataFrame, n: int, seed: int = 0) -> pd.DataFrame:
     return pd.concat(picks)
 
 
-def extract(subset: pd.DataFrame, embedder, cache: str, dtype: str, batch_size: int = 32) -> None:
+def extract(subset: pd.DataFrame, embedder, cache: str, dtype: str, batch_size: int = 32,
+            normalize: str | None = None) -> None:
     """Read each shard once and embed every perturbed version of the selected images that is not cached yet."""
     for shard, g in sorted(subset.groupby("shard")):
         out = CACHE_DIR / "features" / cache / f"{Path(shard).stem}.npz"
@@ -62,7 +65,10 @@ def extract(subset: pd.DataFrame, embedder, cache: str, dtype: str, batch_size: 
         with tqdm(total=len(rows), desc=Path(shard).stem) as bar:
             for _, images in iter_shard(LOCAL_DIR / "data" / shard, rows, batch_size):
                 for c in missing:
-                    feats[c].append(embedder([apply(im, c) for im in images]).astype(dtype))
+                    perturbed = [apply(im, c) for im in images]
+                    if normalize is not None:
+                        perturbed = [apply(im, normalize) for im in perturbed]
+                    feats[c].append(embedder(perturbed).astype(dtype))
                 bar.update(len(images))
         out.parent.mkdir(parents=True, exist_ok=True)
         np.savez(out, row=rows, **cached, **{c: np.concatenate(v) for c, v in feats.items()})
@@ -85,17 +91,19 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--C", type=float, default=1.0)
     ap.add_argument("--train-aug", action="store_true", help="classifier also trained on augmented copies")
+    ap.add_argument("--input", default=None, help="input normalisation after each perturbation, e.g. jpeg75")
     args = ap.parse_args()
 
     method = METHODS[args.method]
-    cache = f"{method.features}_robust"
-    df = load_split(method.features, args.holdout, args.seed)
-    probe = fit_probe(df, method.classifier(args.C), load_augmented(method.features, df) if args.train_aug else None)
+    features = method.features + (f"_norm-{args.input}" if args.input else "")
+    cache = f"{features}_robust"
+    df = load_split(features, args.holdout, args.seed)
+    probe = fit_probe(df, method.classifier(args.C), load_augmented(features, df) if args.train_aug else None)
     val = df.part == "val"
     df.loc[val, "p_fake"] = probe.predict_proba(features_matrix(df[val]))[:, 1]
     thresholds = dict(zip(OPERATING_POINTS, [0.5, val_threshold(df)]))
     subset = robust_subset(df, args.n, args.seed)
-    extract(subset, method.extractor(), cache, method.cache_dtype)
+    extract(subset, method.extractor(), cache, method.cache_dtype, normalize=args.input)
     data = load_robust(subset, cache)
 
     metrics, by_format = [], []
@@ -111,7 +119,8 @@ def main():
         by_format.append(flagged.reset_index().assign(condition=c))
     metrics, by_format = pd.DataFrame(metrics), pd.concat(by_format)
 
-    out = RUNS_DIR / f"robustness_{args.method}{'_aug' if args.train_aug else ''}" / datetime.now().strftime("%Y%m%d-%H%M%S")
+    tag = f"robustness_{args.method}" + ("_aug" if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "")
+    out = RUNS_DIR / tag / datetime.now().strftime("%Y%m%d-%H%M%S")
     out.mkdir(parents=True)
     (out / "args.json").write_text(json.dumps({**vars(args), "thresholds": thresholds}, indent=2))
     metrics.to_csv(out / "metrics.csv", index=False)

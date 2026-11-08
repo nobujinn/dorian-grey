@@ -1,0 +1,13 @@
+{
+  "method": "b",
+  "n": 1000,
+  "holdout": 0.3,
+  "seed": 0,
+  "C": 1.0,
+  "train_aug": false,
+  "input": "jpeg75",
+  "thresholds": {
+    "0.5": 0.5,
+    "val_fpr5": 0.5360842943191529
+  }
+}
