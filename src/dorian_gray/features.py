@@ -75,13 +75,13 @@ def extract_shard(path: Path, extractors: dict[str, tuple], max_images: int | No
     names, feats, params, pos = [], {n: [] for n in todo}, [], 0
     with tqdm(total=len(rows), desc=path.stem) as bar:
         for meta, images in iter_shard(path, rows, batch_size):
-            if normalize is not None:
-                images = [apply(im, normalize) for im in images]
             if augment_seed is not None:
                 aug = [random_augment(im, np.random.default_rng([augment_seed, shard_key, int(r)]))
                        for im, r in zip(images, rows[pos:pos + len(images)])]
                 images = [im for im, _ in aug]
                 params.extend(prm for _, prm in aug)
+            if normalize is not None:  # after augmentation: the distortion happened before the image reached us
+                images = [apply(im, normalize) for im in images]
             pos += len(images)
             for n, (fn, dtype) in todo.items():
                 feats[n].append(fn(images).astype(dtype))

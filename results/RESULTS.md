@@ -20,6 +20,9 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `external_ntire2026_val/`, `external_ntire2026_test/`, `external_aigi_now_pixel/` | Independent test sets (sections 10–11): metrics per subset and threshold, flag rate per format |
 | `external_ntire2026_val_norm-jpeg75/`, `external_aigi_now_pixel_norm-jpeg75/` | Format-normalised models on the independent sets (section 13) |
 | `mixed_ntire2026_train_aug/`, `mixed_ntire2026_train_nocf/` | Training with NTIRE data added (section 12): metrics per method, seed, test set and subset |
+| `mixed_ntire2026_train_norm-jpeg75/` | Normalised input + NTIRE data (section 14), same layout |
+| `faces_ff_c23/` | FaceForensics++ c23 face crops (section 15): `metrics.csv` per method, protocol, held-out manipulation, frame / video level |
+| `external_ff_c23_faces/` | Community Forensics models applied zero-shot to the face crops (section 15) |
 | `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
 | `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
 | `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training), `robustness_classifier.pdf/.png` (A linear vs. A trees vs. B, augmented training), `robustness_unseen_ops.pdf/.png` (operations not used in training, section 8) |
@@ -895,10 +898,112 @@ with augmentation, AUC 0.687.) Flagged as fake on AIGI-Now after normalisation (
   it supports making it the reference protocol (supervisor question 7). Next: combine normalisation with
   the NTIRE training data and augmentation.
 
-## 14. Open issues / next steps
+## 14. Combination: format-normalised input + NTIRE training data (8. 11. 2026)
+
+The two fixes together: `mixed --input jpeg75 --extra ntire2026_train …` (sections 9 and 12), i.e. every image
+re-encoded as JPEG q75, trained on CF + NTIRE train shard 5 (80 / 10 / 10 % per seed), threshold from the pooled
+validation reals, 3 seeds. **No augmentation** (no augmented copies are cached for normalised input), so the
+"CF + NTIRE" column of section 12 (with augmentation) is the closest but not an exact comparison.
+Run `mixed_ntire2026_train_norm-jpeg75/20261108-035419`.
+
+### 14.1 AUC (mean of 3 seeds; FPR / FNR at the pooled 5 % validation-FPR threshold in brackets)
+
+| Test set | A trees: norm., CF only (9, 13) | A trees: CF + NTIRE (12) | **A trees: norm., CF + NTIRE** | B: norm., CF only (9, 13) | B: CF + NTIRE (12) | **B: norm., CF + NTIRE** |
+|---|---|---|---|---|---|---|
+| CF, unseen generators | 0.897 | 0.941 | 0.872 (0.023 / 0.679) | 0.968 | 0.987 | 0.965 (0.017 / 0.272) |
+| NTIRE train shard, held-out 10 % | — | 0.886 | 0.846 (0.109 / 0.399) | — | 0.910 | 0.902 (0.119 / 0.270) |
+| NTIRE validation set | 0.535 | 0.728 | 0.710 (0.170 / 0.560) | 0.547 | 0.747 | 0.747 (0.270 / 0.368) |
+| NTIRE public test set | — | 0.623 | 0.597 (0.235 / 0.643) | — | 0.595 | 0.591 (0.341 / 0.542) |
+| AIGI-Now, all 9 generators | 0.866 | 0.738 | 0.856 (0.034 / 0.683) | 0.870 | 0.899 | 0.891 (0.023 / 0.657) |
+| AIGI-Now, 4 JPEG generators | 0.80–0.96 | 0.55–0.67 | 0.79–0.88 | 0.85–0.92 | 0.84–0.93 | 0.86–0.95 |
+| AIGI-Now, 5 PNG generators | 0.78–0.95 | 0.75–0.92 | 0.80–0.92 | 0.79–0.94 | 0.87–0.96 | 0.83–0.92 |
+
+("norm., CF only" CF row: 5 seeds, section 9.1; its external rows: seed 0, section 13. "—": not evaluated.)
+AIGI-Now per JPEG generator, B (norm. CF only → CF + NTIRE → combination): FLUX Krea 0.921 → 0.873 → 0.916;
+FLUX Pro 0.849 → 0.840 → 0.859; Jimeng 0.903 → 0.928 → 0.952; Minimax 0.869 → 0.840 → 0.876. Method A trees,
+combination: FLUX Krea 0.881, FLUX Pro 0.794, Jimeng 0.856, Minimax 0.852.
+NTIRE subsets (combination, A / B): val clean 0.805 / 0.829, val distorted 0.653 / 0.709, hard clean 0.704 / 0.716,
+hard distorted 0.551 / 0.587; public test clean 0.654 / 0.652, distorted 0.540 / 0.541.
+
+**Findings**
+- **Normalisation keeps Method A format-independent when NTIRE data is added.** With clean input, adding the
+  all-JPEG NTIRE data made A's trees flag 27 % of AIGI-Now's COCO reals and drop to 0.55–0.67 AUC on the JPEG
+  generators (section 12). With normalised input A reaches 0.856 on AIGI-Now at 3.4 % FPR, no generator below 0.79.
+- **Method B gets the best of both:** AIGI-Now 0.891 at 2.3 % FPR, every generator ≥ 0.83, Jimeng 0.952 (best
+  of all CF-based variants), and NTIRE validation 0.747 as with clean input.
+- **Part of B's clean-input score on the PNG generators was format.** Compared with clean-input CF + NTIRE,
+  normalisation lowers B on the PNG generators (GPT-4o 0.957 → 0.833, Nano 0.931 → 0.845, Kling 0.940 → 0.910)
+  and raises it on the JPEG ones (FLUX Krea 0.873 → 0.916, Jimeng 0.928 → 0.952): with clean input, PNG fakes
+  next to JPEG reals were partly separable by format, also for CLIP. Overall AUC is nearly unchanged
+  (0.899 → 0.891), but the normalised number is the fairer one.
+- **On NTIRE, normalisation adds nothing beyond the data itself** (val 0.71 / 0.75, public test 0.60 / 0.59,
+  same as section 12). Distorted images remain the main weakness (AUC 0.54–0.71); a format change does not
+  undo blur, noise or resampling.
+- **The pooled threshold is the cost again, now larger.** CF unseen AUC barely moves (B 0.968 → 0.965), but at
+  the pooled threshold CF unseen FNR rises from 0.140 (norm., CF only, 9.1) to 0.272 for B and from 0.453 to
+  0.679 for A, while NTIRE reals are still flagged at 17–34 %. One global threshold cannot serve sources whose
+  reals score differently; this calls for calibration (per source, or a threshold set on degraded/web-like
+  validation reals) rather than more data alone.
+- **Practical conclusion:** normalised input + varied training data is the most robust configuration found so
+  far for both methods (no format shortcut, best or near-best AUC on every independent set); B stays ahead of A.
+
+## 15. Face manipulation: FaceForensics++ c23 (8. 11. 2026)
+
+**Data** (`data/faceforensics.py`): FaceForensics++ (Rössler et al., ICCV 2019), c23 (light H.264) videos;
+1000 originals and 1000 videos each of Deepfakes, Face2Face, FaceSwap, NeuralTextures and FaceShifter
+(DeepFakeDetection skipped: its reals are not in this copy). Official split by video pair (720 / 140 / 140),
+so no identity crosses splits. 8 evenly spaced frames per video, most confident face (YuNet detector),
+square crop 1.3× the box, saved as PNG for real and fake alike (no format difference between the classes):
+47,686 crops (test: 1,106 real, 5,509 fake crops; 139 real, 695 fake videos).
+**Protocol** (`experiments/faces.py`, one run, the split is fixed): trained on the train split, threshold
+`val_fpr5` on the validation reals, evaluated on the test split. *all* = trained on every manipulation;
+*leave-one-out* = trained without one manipulation, tested on it (+ reals). Frame level, and video level
+(mean score of the video's crops). Run `faces_ff_c23/20261108-060807`.
+
+### 15.1 AUC, test split (video level in brackets)
+
+| Test subset | A, LR: all | A, trees: all | B: all | A, LR: left out | A, trees: left out | B: left out |
+|---|---|---|---|---|---|---|
+| All manipulations | 0.770 (0.833) | 0.814 (0.877) | **0.863 (0.897)** | — | — | — |
+| Deepfakes | 0.769 (0.822) | 0.841 (0.900) | 0.952 (0.973) | 0.682 (0.727) | 0.784 (0.849) | **0.939 (0.965)** |
+| Face2Face | 0.768 (0.841) | 0.769 (0.836) | 0.849 (0.882) | 0.715 (0.781) | 0.672 (0.727) | 0.777 (0.808) |
+| FaceSwap | 0.841 (0.910) | 0.890 (0.946) | 0.919 (0.957) | 0.671 (0.739) | 0.717 (0.792) | 0.869 (0.915) |
+| NeuralTextures | 0.724 (0.783) | 0.770 (0.832) | 0.729 (0.763) | 0.655 (0.698) | 0.686 (0.734) | 0.603 (0.622) |
+| FaceShifter | 0.748 (0.809) | 0.801 (0.869) | 0.867 (0.910) | 0.690 (0.752) | 0.724 (0.790) | 0.723 (0.767) |
+
+At the 5 % validation-FPR threshold, *all* protocol, frame level: FPR 0.052 / 0.061 / 0.051 (A LR / A trees / B),
+FNR 0.674 / 0.582 / 0.461; video level FPR 0.022 / 0.022 / 0.036, FNR 0.741 / 0.669 / 0.472. The threshold holds
+its FPR here (same source for validation and test).
+
+**Zero-shot: the Community Forensics models on all face crops** (`external --name ff_c23_faces`, seed-0 models,
+CF thresholds, run `external_ff_c23_faces/20261108-061259`): AUC 0.479 (A LR), 0.471 (A trees, aug.),
+0.668 (B), 0.675 (B, aug.); real faces flagged at 43 % (A LR), 76 % (A trees) and > 99 % (B).
+
+**Findings**
+- **Detectors of fully generated images do not detect face manipulation.** Zero-shot, the CF models are at or
+  near chance (AUC 0.47–0.68), and real face crops from compressed video are flagged as fake, B's almost all of
+  them: a face crop from compressed video is far from any CF real image. Face manipulation needs its own training data.
+- **Trained on FF++, Method B is best overall** (frame AUC 0.863, video 0.897); Method A with trees reaches
+  0.814 / 0.877. Video-level averaging helps every method (+0.03–0.06 AUC).
+- **Identity swaps vs. expression edits.** B detects the identity-swap methods well, even when left out
+  (Deepfakes 0.939, FaceSwap 0.869), but not the reenactment / rendering methods that keep the identity:
+  NeuralTextures 0.729 even when trained on it, 0.603 left out; Face2Face 0.777 left out. CLIP's semantic
+  features see a changed identity, not a subtly changed mouth region.
+- **Method A is more uniform** and on NeuralTextures better than B (trained on it 0.770 vs. 0.729, left out 0.686
+  vs. 0.603): its residual / frequency features look at local blending traces, not at semantics.
+  Left out, A loses more on the identity swaps (Deepfakes 0.841 → 0.784, FaceSwap 0.890 → 0.717).
+- **High miss rate at a low FPR:** at 5 % FPR, B still misses 46 % of fake frames (47 % of videos): c23 compression
+  and 8 small crops per video leave weak evidence. The methods are complementary (B: identity swaps, A:
+  NeuralTextures), which suggests a combination of the two.
+- Caveats: one split (official), no seeds; 8 frames per video; c23 only (no raw / c40); YuNet crops,
+  not landmark-aligned.
+
+## 16. Open issues / next steps
 
 - Format-controlled evaluation as the reference protocol (9.1): normalised input, and/or JPEG fakes from
-  several generators. Combine normalisation with augmentation, and test other normalisation qualities.
+  several generators. Normalised input combined with NTIRE data is the best configuration so far (14);
+  still to do: normalisation with augmentation (distortions), other normalisation qualities, per-source
+  calibration of the threshold.
 - Chroma-independent residual features for Method A (7.2), to remove the chroma-subsampling shortcut.
 - Control the grayscale bias (3.6).
 - Threshold / calibration under post-processing: a threshold set on clean data does not hold its FPR
@@ -906,4 +1011,6 @@ with augmentation, AUC 0.687.) Flagged as fake on AIGI-Now after normalisation (
 - Tune C (LR) and the tree hyper-parameters on the validation set (augmented tree runs hit the
   1000-iteration cap, section 5).
 - Patch heatmap explanation for Method B.
-- Face swap (FF++ face crops) and local manipulation with localisation (CASIA / IMD2020 masks).
+- Face manipulation (15): cross-dataset test (Celeb-DF v2), combination of A and B (complementary on
+  NeuralTextures vs. identity swaps), more frames per video.
+- Local manipulation with localisation (CASIA / IMD2020 masks).

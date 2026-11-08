@@ -12,7 +12,7 @@ Data:
 The `val_fpr5` threshold flags 5 % of the pooled validation reals (Community Forensics + extra). Features are
 cached per set in cache/features/external/<name>/ (shared with `external`).
 
-Usage: uv run python -m dorian_gray.experiments.mixed --methods a_gbt b [--train-aug] [--no-cf] [--seeds 0 1 2]
+Usage: uv run python -m dorian_gray.experiments.mixed --methods a_gbt b [--train-aug] [--input jpeg75] [--no-cf] [--seeds 0 1 2]
        --extra ntire2026_train D:/datasets/ntire2026-aigi-train manifest.csv
        --test ntire2026_val D:/datasets/ntire2026-aigi-val manifest.csv
        --test aigi_now_pixel D:/datasets/aigi-now manifest_pixel.csv
@@ -35,10 +35,10 @@ from dorian_gray.methods import METHODS
 from dorian_gray.metrics import binary_metrics, threshold_at_fpr
 
 
-def load_set(name: str, root: str, manifest: str, features: str) -> pd.DataFrame:
+def load_set(name: str, root: str, manifest: str, features: str, suffix: str = "") -> pd.DataFrame:
     """Manifest of an external set with its cached features (extracted beforehand by `prefetch`)."""
     df = load_manifest(Path(root), manifest)
-    z = np.load(CACHE_DIR / "features" / "external" / name / f"{features}.npz")
+    z = np.load(CACHE_DIR / "features" / "external" / (name + suffix) / f"{features}.npz")
     assert list(z["path"]) == list(df.path), f"{name}: cached features out of sync with the manifest"
     df["features"], df["format"] = list(z["features"].astype(np.float32)), z["format"]
     if "source" not in df:
@@ -46,10 +46,12 @@ def load_set(name: str, root: str, manifest: str, features: str) -> pd.DataFrame
     return df
 
 
-def prefetch(sets: list[tuple[str, str, str]], features: list[str]) -> None:
+def prefetch(sets: list[tuple[str, str, str]], features: list[str], normalize: str | None = None) -> None:
     """Extract every missing feature cache in one pass over each set's images."""
+    suffix = f"_norm-{normalize}" if normalize else ""
     for name, root, manifest in sets:
-        extract(load_manifest(Path(root), manifest), features, CACHE_DIR / "features" / "external" / name, None)
+        extract(load_manifest(Path(root), manifest), features,
+                CACHE_DIR / "features" / "external" / (name + suffix), normalize)
 
 
 def split_extra(df: pd.DataFrame, seed: int) -> pd.Series:
@@ -71,15 +73,16 @@ def set_metrics(df: pd.DataFrame, thresholds: dict, dataset: str) -> list[dict]:
 
 def run(args, method_key: str, seed: int, out: Path) -> list[dict]:
     method = METHODS[method_key]
-    extras = [load_set(*e, method.features).assign(part=lambda d: split_extra(d, seed)) for e in args.extra]
+    suffix = f"_norm-{args.input}" if args.input else ""
+    extras = [load_set(*e, method.features, suffix).assign(part=lambda d: split_extra(d, seed)) for e in args.extra]
     train = [e[e.part == "train"][["features", "label"]] for e in extras]
     val_reals = [e[(e.part == "val") & (e.label == 0)] for e in extras]
     cf = None
     if not args.no_cf:
-        cf = load_split(method.features, args.holdout, seed)
+        cf = load_split(method.features + suffix, args.holdout, seed)
         train.append(cf[cf.part == "train"][["features", "label"]])
         if args.train_aug:
-            aug = load_augmented(method.features, cf)
+            aug = load_augmented(method.features + suffix, cf)
             train.append(aug[aug.part == "train"][["features", "label"]])
     train = pd.concat(train, ignore_index=True)
     model = method.classifier(args.C).fit(features_matrix(train), train["label"])
@@ -103,7 +106,7 @@ def run(args, method_key: str, seed: int, out: Path) -> list[dict]:
         rows += set_metrics(e[e.part == "val"], thresholds, f"{name}:val")
         rows += set_metrics(e[e.part == "test"], thresholds, f"{name}:test")
     for name, root, manifest in args.test:
-        rows += set_metrics(score(load_set(name, root, manifest, method.features)), thresholds, name)
+        rows += set_metrics(score(load_set(name, root, manifest, method.features, suffix)), thresholds, name)
 
     out.mkdir(parents=True)
     joblib.dump(model, out / "model.joblib")
@@ -130,12 +133,13 @@ def main():
     ap.add_argument("--holdout", type=float, default=0.3)
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2])
     ap.add_argument("--C", type=float, default=1.0)
+    ap.add_argument("--input", default=None, help="input normalisation of every image, e.g. jpeg75 (section 9)")
     args = ap.parse_args()
     assert args.extra or not args.no_cf, "nothing to train on"
 
-    prefetch(args.extra + args.test, sorted({METHODS[m].features for m in args.methods}))
+    prefetch(args.extra + args.test, sorted({METHODS[m].features for m in args.methods}), args.input)
     tag = ("mixed_" + "+".join(e[0] for e in args.extra) + ("_aug" if args.train_aug else "")
-           + ("_nocf" if args.no_cf else ""))
+           + ("_nocf" if args.no_cf else "") + (f"_norm-{args.input}" if args.input else ""))
     out = RUNS_DIR / tag / datetime.now().strftime("%Y%m%d-%H%M%S")
     rows = [r for m in args.methods for s in args.seeds for r in run(args, m, s, out / m / f"seed{s}")]
     summary = pd.DataFrame(rows)

@@ -81,6 +81,25 @@ manifest with `path,label[,source]`.
 uv run python -m dorian_gray.experiments.external --name <set> --root D:/datasets/<set>
 ```
 
+Training with an extra labelled source (e.g. the NTIRE 2026 training set) next to Community Forensics,
+tested on independent sets; `--no-cf` trains on the extra source only, `--input jpeg75` re-encodes every
+image first:
+
+```
+uv run python -m dorian_gray.experiments.mixed --train-aug \
+    --extra ntire2026_train D:/datasets/ntire2026-aigi-train manifest.csv \
+    --test aigi_now_pixel D:/datasets/aigi-now manifest_pixel.csv
+```
+
+Face manipulation (FaceForensics++ c23 videos + the official split files in `D:/datasets/ff-c23`):
+face crops from 8 frames per video, saved as PNG, then Methods A and B on all manipulations and
+leave-one-manipulation-out, per frame and per video:
+
+```
+uv run python -m dorian_gray.data.faceforensics
+uv run python -m dorian_gray.experiments.faces
+```
+
 ```
 uv run pytest
 ```

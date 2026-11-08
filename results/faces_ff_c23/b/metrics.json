@@ -1,0 +1,15 @@
+{
+  "args": {
+    "methods": [
+      "a",
+      "a_gbt",
+      "b"
+    ],
+    "protocols": [
+      "all",
+      "loo"
+    ],
+    "C": 1.0
+  },
+  "val_threshold": 0.6742550730705262
+}

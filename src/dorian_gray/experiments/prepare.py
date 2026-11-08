@@ -12,6 +12,7 @@ Usage: uv run python -m dorian_gray.experiments.prepare --method a b [--augment]
   (cache name <features>_aug), used as extra training data by `classify --train-aug`.
   --normalize re-encodes every image with one `perturb.CONDITIONS` operation before extraction
   (cache name <features>_norm-<condition>), used by `classify --input <condition>`.
+  Both together: the random distortion first, then the normalisation (cache <features>_norm-<condition>_aug).
 """
 
 import argparse
@@ -58,7 +59,8 @@ def main():
     sizes = manifest.groupby("shard").shard_bytes.first()
     print(f"{len(REAL_SHARDS) + len(FAKE_SHARDS)} shards, {sizes[REAL_SHARDS + FAKE_SHARDS].sum() / 1e9:.1f} GB")
     paths = download_shards(REAL_SHARDS + FAKE_SHARDS)
-    suffix = ("_aug" if args.augment else "") + (f"_norm-{args.normalize}" if args.normalize else "")
+    # <features>_norm-<condition>_aug: what `classify` / `mixed` load for `--input <condition> --train-aug`
+    suffix = (f"_norm-{args.normalize}" if args.normalize else "") + ("_aug" if args.augment else "")
     extractors = {METHODS[m].features + suffix: (METHODS[m].extractor(), METHODS[m].cache_dtype) for m in args.method}
     for path in paths:
         extract_shard(path, extractors, MAX_REAL if path.name in REAL_SHARDS else MAX_FAKE,
