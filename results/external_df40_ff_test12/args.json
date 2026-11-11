@@ -1,0 +1,17 @@
+{
+  "name": "df40_ff_test12",
+  "root": "D:\\datasets\\df40",
+  "manifest": "manifest.csv",
+  "input": null,
+  "runs": [
+    "faces_ff_c23/a",
+    "faces_ff_c23/a_gbt",
+    "faces_ff_c23/b"
+  ],
+  "n": 54234,
+  "models": {
+    "faces_ff_c23/a": "20261108-060807",
+    "faces_ff_c23/a_gbt": "20261108-060807",
+    "faces_ff_c23/b": "20261108-060807"
+  }
+}

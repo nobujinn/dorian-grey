@@ -23,7 +23,7 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `mixed_ntire2026_train_norm-jpeg75/` | Normalised input + NTIRE data (section 14), same layout |
 | `faces_ff_c23/` | FaceForensics++ c23 face crops (section 15): `metrics.csv` per method, protocol, held-out manipulation, frame / video level |
 | `external_ff_c23_faces/` | Community Forensics models applied zero-shot to the face crops (section 15) |
-| `external_df40_ff_test/` | FF++ face models on DF40 SimSwap / InSwap test frames, frame and video level (section 17) |
+| `external_df40_ff_test/`, `external_df40_ff_test12/` | FF++ face models on DF40 test frames (2, then 12 methods), frame and video level (section 17) |
 | `mixed_ntire2026_train+ntire2026_train0_norm-jpeg75/`, `…_aug-deg_augextra_norm-jpeg75/` | CF + two NTIRE shards, without / with blur-noise augmentation (section 18.1) |
 | `method_{a_gbt,b}_aug-deg_norm-jpeg75/`, `robustness_{a_gbt,b}_aug-deg_norm-jpeg75/` | `deg` augmentation: 5 seeds on CF and robustness (sections 18.2, 18.3) |
 | `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
@@ -1083,39 +1083,61 @@ were never used in training.
   normalisation rests on the format shortcut (9) and the independent sets (13–14), not on this benchmark.
 - Caveat: one split, 3,000 images; the conditions are single operations at fixed strength.
 
-## 17. Faces, unseen modern face swaps: DF40 (11. 11. 2026)
+## 17. Faces, unseen face-forgery methods: DF40 (11. 11. 2026)
 
-**Data** (`data/df40.py`): DF40 (Yan et al., NeurIPS 2024 D&B), the FF++-identity part (`_ff`) of two modern
-identity-swap methods, **SimSwap** and **InSwap**, official test split only (FF++ test videos, so no identity of
-the training split); real frames are DF40's own FF++ test crops (same preprocessing as its fakes). 4,479 real
-frames (140 videos), 4,468 SimSwap (140), 3,762 InSwap (118); every image 256×256 PNG in both classes. (The other
-downloaded methods held only DF40's training frames, i.e. our training identities, and were not used; dataset notes
-in DATASET-REQUESTS.md.) **Models:** the *all*-protocol FF++ face models of section 15, unchanged, with their FF++
-thresholds (`external --name df40_ff_test --runs faces_ff_c23/{a,a_gbt,b}`, run
-`external_df40_ff_test/20261111-102411`). Neither swap method is in FF++ training.
+**Data** (`data/df40.py`): DF40 (Yan et al., NeurIPS 2024 D&B), the FF++-identity part (`_ff`), official test split
+only (FF++ test videos, so no identity of the training split); real frames are DF40's own FF++ test crops (same
+preprocessing as its fakes): 4,479 real frames (140 videos). 12 methods, none of them in FF++ training, 3,663–4,468
+fake frames each (115–140 videos): face swap (SimSwap, InSwap, BlendFace, UniFace, E4S, FaceDancer), face
+reenactment (FOMM, FaceVid2Vid, SadTalker), entire face synthesis (StyleGAN3, DiT, VQGAN). Every image is 256×256
+PNG RGB in both classes. MobileSwap excluded (its `_ff` test list contains training-split pairs); the `_cdf` part is
+unused (no matching real crops). Dataset notes: DATASET-REQUESTS.md.
+**Models:** the *all*-protocol FF++ face models of section 15, unchanged, with their FF++ thresholds
+(`external --name df40_ff_test12 --runs faces_ff_c23/{a,a_gbt,b}`, run `external_df40_ff_test12/20261111-134304`;
+a first run on SimSwap / InSwap only, `external_df40_ff_test/20261111-102411`, gives the same numbers for those two).
+Per method: that method's fakes against all real frames.
 
 | AUC, frame (video) | A, LR | A, trees | B |
 |---|---|---|---|
 | SimSwap | 0.589 (0.612) | 0.634 (0.662) | **0.858 (0.895)** |
 | InSwap | 0.723 (0.770) | 0.713 (0.744) | **0.809 (0.847)** |
-| Both | 0.650 (0.684) | 0.670 (0.700) | **0.836 (0.873)** |
+| BlendFace | 0.617 (0.645) | 0.647 (0.673) | **0.775 (0.815)** |
+| UniFace | 0.609 (0.639) | 0.604 (0.631) | **0.904 (0.934)** |
+| E4S | 0.652 (0.680) | 0.430 (0.389) | **0.915 (0.950)** |
+| FaceDancer | 0.534 (0.550) | 0.447 (0.434) | **0.736 (0.770)** |
+| FOMM (reenactment) | 0.361 (0.332) | 0.739 (0.772) | **0.786 (0.825)** |
+| FaceVid2Vid (reenactment) | 0.087 (0.037) | 0.460 (0.449) | **0.701 (0.733)** |
+| SadTalker (reenactment) | 0.439 (0.435) | **0.641 (0.669)** | 0.538 (0.536) |
+| StyleGAN3 (synthesis) | 0.290 (0.189) | 0.543 (0.524) | **1.000 (1.000)** |
+| DiT (synthesis) | **0.948 (0.981)** | 0.776 (0.742) | 0.774 (0.911) |
+| VQGAN (synthesis) | 0.896 (0.945) | 0.701 (0.604) | **1.000 (1.000)** |
+| All 12 | 0.552 (0.557) | 0.610 (0.609) | **0.810 (0.845)** |
 | *for comparison: FF++ test, all manipulations (15.1)* | *0.770 (0.833)* | *0.814 (0.877)* | *0.863 (0.897)* |
 
 At the FF++ `val_fpr5` threshold (frame level): DF40 real frames flagged 30.3 % (A LR), 63.2 % (A trees),
-9.8 % (B); fake frames missed 45.4 %, 18.4 %, 44.0 %. Video level: FPR 0.229 / 0.586 / 0.043, FNR 0.496 / 0.213 / 0.450.
+9.8 % (B); fake frames missed (all 12) 55.6 %, 25.8 %, 44.3 %. B misses 22–58 % of the face-swap frames, 53–88 % of
+the reenactment frames, and 0–0.1 % of StyleGAN3 / VQGAN frames (DiT 57 %).
 
 **Findings**
-- **Method B transfers to unseen modern identity swaps:** frame AUC 0.836 (video 0.873), almost its in-domain FF++
-  level (0.863 / 0.897); on SimSwap it matches it. Consistent with section 15: B sees a changed identity, whatever
-  method made it. Its threshold roughly holds (9.8 % of real frames flagged at a nominal 5 %).
-- **Method A drops to 0.65–0.67** and its threshold breaks: the trees flag 63 % of the real frames. The likely
-  cause is the preprocessing, not the forgery: DF40 resizes every crop to 256×256 (our FF++ crops keep their native
-  size, median ≈ 200 px), and resampling makes real images look fake to A (sections 3.5, 4.3). Same pattern as the
-  cross-dataset tests for AI-generated images: A's evidence is tied to the exact pixel pipeline.
-- Comparison with the literature (frame level, trained on FF++ c23): DeepfakeBench reports Celeb-DF v2 AUC 0.7365
-  for Xception (different test set, so not directly comparable).
-- Caveats: two swap methods only (the zips behind DF40's links did not contain the other methods' test split);
-  one run; FF++ identities (cross-method, not cross-identity).
+- **Method B transfers to unseen face swaps:** frame AUC 0.74–0.92 on the six swap methods (UniFace 0.904, E4S 0.915),
+  close to its FF++ level (0.863). Its threshold roughly holds (9.8 % of real frames flagged at a nominal 5 %).
+- **Reenactment stays B's blind spot** (FOMM 0.786, FaceVid2Vid 0.701, SadTalker 0.538, i.e. chance): same pattern as
+  NeuralTextures / Face2Face on FF++ (15). The identity is unchanged, and CLIP's features respond to identity, not
+  to re-animated expressions. On SadTalker, A's trees are better (0.641).
+- **Entire face synthesis: B separates StyleGAN3 and VQGAN perfectly (AUC 1.000).** Caveat: these images are
+  generated whole faces, not frames of FF++ videos, so they differ from the real FF++ crops also in content (pose,
+  background, no video compression); the perfect score is partly that domain difference, not only generator traces.
+- **Method A breaks across the board** (0.55 / 0.61 overall) and its errors are systematic, not random: AUC far
+  below 0.5 on FaceVid2Vid (0.087, LR) and StyleGAN3 (0.290), i.e. these fakes look *more* real than the real frames
+  to A, while DiT and VQGAN are easy for the linear model (0.948 / 0.896). Its threshold breaks too (trees flag 63 %
+  of real frames). The likely common cause is the pixel pipeline: DF40 resizes every crop to 256×256 (our FF++
+  crops keep their native size, median ≈ 200 px), and resampling makes real images look fake to A (sections 3.5,
+  4.3); each method's own output resolution then decides which side of the reals its fakes land on. Same pattern
+  as the cross-dataset tests for AI-generated images: A's evidence is tied to the exact processing chain.
+- **Consequence for the framework:** for faces, B is the method to rely on for identity swaps; reenactment
+  (expression / lip-sync edits) is detected by neither method at a useful level.
+- Caveats: FF++ identities only (cross-method, not cross-identity); one run; DF40's preprocessing differs from
+  ours (crop size, alignment), which affects A much more than B.
 
 ## 18. More NTIRE data and blur / noise augmentation (chain of 8.–9. 11., written up 11. 11.)
 
