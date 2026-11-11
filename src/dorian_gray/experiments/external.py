@@ -81,7 +81,8 @@ def main():
     ap.add_argument("--root", type=Path, required=True)
     ap.add_argument("--manifest", default=None, help="CSV with path,label[,source], relative to --root")
     ap.add_argument("--input", default=None, help="input normalisation, must match the runs (e.g. jpeg75)")
-    ap.add_argument("--runs", nargs="+", default=None, help="classify experiment folders to evaluate")
+    ap.add_argument("--runs", nargs="+", default=None,
+                    help="classify experiment folders, or <mixed experiment>/<method> (e.g. mixed_x_norm-jpeg75/b)")
     args = ap.parse_args()
 
     suffix = f"_norm-{args.input}" if args.input else ""
@@ -90,11 +91,15 @@ def main():
     print(df.groupby("label").size().rename({0: "real", 1: "fake"}).to_string())
 
     models = {}
-    for tag in runs:
-        run = sorted(p for p in (RUNS_DIR / tag).iterdir() if p.is_dir())[-1]
-        meta = json.loads((run / "seed0" / "metrics.json").read_text())
+    for tag in runs:  # experiment folder [/ method inside the run, for `mixed` runs]
+        experiment, _, inner = tag.partition("/")
+        run = sorted(p for p in (RUNS_DIR / experiment).iterdir() if p.is_dir())[-1]
+        src = run / inner / "seed0" if (run / inner / "seed0").exists() else run / inner  # `faces`: no seeds
+        meta = json.loads((src / "metrics.json").read_text())
         assert (meta["args"].get("input") or None) == args.input, f"{tag} was trained with a different input"
-        models[tag] = (METHODS[meta["args"]["method"]].features + suffix, joblib.load(run / "seed0" / "model.joblib"),
+        # `mixed` stores the method top-level, `classify` in args, `faces` only as the folder name
+        method = meta.get("method") or meta["args"].get("method") or inner
+        models[tag] = (METHODS[method].features + suffix, joblib.load(src / "model.joblib"),
                        {"0.5": 0.5, "val_fpr5": meta["val_threshold"]}, run.name)
 
     cache = CACHE_DIR / "features" / "external" / (args.name + suffix)
@@ -106,13 +111,23 @@ def main():
         assert list(z["path"]) == list(df.path), "cached features out of sync with the image list"
         p = model.predict_proba(z["features"].astype(np.float32))[:, 1]
         preds[tag], preds["format"] = p, z["format"]
-        groups = [("all", np.ones(len(df), bool))] + ([(f"source={s}", (df.source == s).to_numpy())
-                                                       for s in sorted(df.source.unique())] if "source" in df else [])
-        for op, t in thresholds.items():
-            for gname, m in groups:
-                if df.label[m].nunique() == 2:
-                    metrics.append({"model": tag, "threshold": op, "subset": gname,
-                                    **binary_metrics(df.label[m], p[m], t)})
+        levels = [("frame", df.assign(p_fake=p))]
+        if "video" in df:  # frames of one video: also score the video (mean of its frame scores), as `faces`
+            levels.append(("video", df.assign(p_fake=p).groupby("video", as_index=False)
+                           .agg(label=("label", "first"), source=("source", "first"), p_fake=("p_fake", "mean"))))
+        for level, d in levels:
+            groups = [("all", np.ones(len(d), bool))]
+            for s in (sorted(d.source.unique()) if "source" in d else []):
+                m = (d.source == s).to_numpy().copy()
+                if d.label[m].nunique() < 2:  # a fake-only source is scored against all reals of the set
+                    m |= (d.label == 0).to_numpy()
+                groups.append((f"source={s}", m))
+            for op, t in thresholds.items():
+                for gname, m in groups:
+                    if d.label[m].nunique() == 2:
+                        metrics.append({"model": tag, "level": level, "threshold": op, "subset": gname,
+                                        **binary_metrics(d.label[m], d.p_fake[m], t)})
+        for op, t in thresholds.items():  # share of images flagged per file format (frame level)
             flagged = pd.DataFrame({"label": df.label, "format": z["format"], "flag": p >= t})
             by_format.append(flagged.groupby(["label", "format"]).flag.agg(["size", "mean"]).reset_index()
                              .assign(model=tag, threshold=op))
@@ -125,7 +140,7 @@ def main():
     metrics.to_csv(out / "metrics.csv", index=False)
     by_format.to_csv(out / "flagged_by_format.csv", index=False)
     preds.drop(columns=["path"]).to_parquet(out / "predictions.parquet")  # no file paths, not exported
-    print(metrics[metrics.subset == "all"].drop(columns="subset").round(3).to_string(index=False))
+    print(metrics.drop(columns=["accuracy"], errors="ignore").round(3).to_string(index=False))
     print(by_format.round(3).to_string(index=False))
     print(f"saved to {out}")
 

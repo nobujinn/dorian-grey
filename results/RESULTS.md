@@ -23,6 +23,7 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `mixed_ntire2026_train_norm-jpeg75/` | Normalised input + NTIRE data (section 14), same layout |
 | `faces_ff_c23/` | FaceForensics++ c23 face crops (section 15): `metrics.csv` per method, protocol, held-out manipulation, frame / video level |
 | `external_ff_c23_faces/` | Community Forensics models applied zero-shot to the face crops (section 15) |
+| `external_df40_ff_test/` | FF++ face models on DF40 SimSwap / InSwap test frames, frame and video level (section 17) |
 | `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
 | `method_{a_gbt,b}_aug_norm-jpeg75/`, `mixed_ntire2026_train_aug_norm-jpeg75/`, `robustness_*_norm-jpeg75/` | Augmentation with normalised input, robustness of the normalised models (section 16) |
 | `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
@@ -1080,7 +1081,46 @@ were never used in training.
   normalisation rests on the format shortcut (9) and the independent sets (13–14), not on this benchmark.
 - Caveat: one split, 3,000 images; the conditions are single operations at fixed strength.
 
-## 17. Open issues / next steps
+## 17. Faces, unseen modern face swaps: DF40 (11. 11. 2026)
+
+**Data** (`data/df40.py`): DF40 (Yan et al., NeurIPS 2024 D&B), the FF++-identity part (`_ff`) of two modern
+identity-swap methods, **SimSwap** and **InSwap**, official test split only (FF++ test videos, so no identity of
+the training split); real frames are DF40's own FF++ test crops (same preprocessing as its fakes). 4,479 real
+frames (140 videos), 4,468 SimSwap (140), 3,762 InSwap (118); every image 256×256 PNG in both classes. (The other
+downloaded methods held only DF40's training frames, i.e. our training identities, and were not used; dataset notes
+in DATASET-REQUESTS.md.) **Models:** the *all*-protocol FF++ face models of section 15, unchanged, with their FF++
+thresholds (`external --name df40_ff_test --runs faces_ff_c23/{a,a_gbt,b}`, run
+`external_df40_ff_test/20261111-102411`). Neither swap method is in FF++ training.
+
+| AUC, frame (video) | A, LR | A, trees | B |
+|---|---|---|---|
+| SimSwap | 0.589 (0.612) | 0.634 (0.662) | **0.858 (0.895)** |
+| InSwap | 0.723 (0.770) | 0.713 (0.744) | **0.809 (0.847)** |
+| Both | 0.650 (0.684) | 0.670 (0.700) | **0.836 (0.873)** |
+| *for comparison: FF++ test, all manipulations (15.1)* | *0.770 (0.833)* | *0.814 (0.877)* | *0.863 (0.897)* |
+
+At the FF++ `val_fpr5` threshold (frame level): DF40 real frames flagged 30.3 % (A LR), 63.2 % (A trees),
+9.8 % (B); fake frames missed 45.4 %, 18.4 %, 44.0 %. Video level: FPR 0.229 / 0.586 / 0.043, FNR 0.496 / 0.213 / 0.450.
+
+**Findings**
+- **Method B transfers to unseen modern identity swaps:** frame AUC 0.836 (video 0.873), almost its in-domain FF++
+  level (0.863 / 0.897); on SimSwap it matches it. Consistent with section 15: B sees a changed identity, whatever
+  method made it. Its threshold roughly holds (9.8 % of real frames flagged at a nominal 5 %).
+- **Method A drops to 0.65–0.67** and its threshold breaks: the trees flag 63 % of the real frames. The likely
+  cause is the preprocessing, not the forgery: DF40 resizes every crop to 256×256 (our FF++ crops keep their native
+  size, median ≈ 200 px), and resampling makes real images look fake to A (sections 3.5, 4.3). Same pattern as the
+  cross-dataset tests for AI-generated images: A's evidence is tied to the exact pixel pipeline.
+- Comparison with the literature (frame level, trained on FF++ c23): DeepfakeBench reports Celeb-DF v2 AUC 0.7365
+  for Xception (different test set, so not directly comparable).
+- Caveats: two swap methods only (the zips behind DF40's links did not contain the other methods' test split);
+  one run; FF++ identities (cross-method, not cross-identity).
+
+## 18. Open issues / next steps
+
+- **CLIP activation mismatch (11. 11.):** open_clip warns that the `ViT-L-14` config uses GELU, while the OpenAI
+  weights were trained with QuickGELU (`ViT-L-14-quickgelu`). All Method B features so far were extracted this way,
+  consistently, so the comparisons hold, but the backbone is not exactly the original CLIP. Fix = switch the model
+  name and re-extract every B cache (many GPU hours); decide before the final runs.
 
 - Format-controlled evaluation as the reference protocol (9.1): normalised input, and/or JPEG fakes from
   several generators. Normalised input combined with NTIRE data is the best configuration so far (14);

@@ -1,0 +1,13 @@
+label,format,size,mean,model,threshold
+0,PNG,4479,0.575128376869837,faces_ff_c23/a,0.5
+1,PNG,8230,0.7825030376670717,faces_ff_c23/a,0.5
+0,PNG,4479,0.3025228845724492,faces_ff_c23/a,val_fpr5
+1,PNG,8230,0.5462940461725395,faces_ff_c23/a,val_fpr5
+0,PNG,4479,0.9039964277740568,faces_ff_c23/a_gbt,0.5
+1,PNG,8230,0.9528554070473876,faces_ff_c23/a_gbt,0.5
+0,PNG,4479,0.6316141995981246,faces_ff_c23/a_gbt,val_fpr5
+1,PNG,8230,0.81591737545565,faces_ff_c23/a_gbt,val_fpr5
+0,PNG,4479,0.29850413038624696,faces_ff_c23/b,0.5
+1,PNG,8230,0.78408262454435,faces_ff_c23/b,0.5
+0,PNG,4479,0.09801294931904443,faces_ff_c23/b,val_fpr5
+1,PNG,8230,0.5602673147023086,faces_ff_c23/b,val_fpr5
