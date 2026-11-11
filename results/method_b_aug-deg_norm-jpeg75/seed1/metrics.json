@@ -1,0 +1,112 @@
+{
+  "args": {
+    "method": "b",
+    "groups": [
+      "spectrum",
+      "periodic",
+      "residual",
+      "dct"
+    ],
+    "train_aug": true,
+    "aug_scheme": "deg",
+    "input": "jpeg75",
+    "holdout": 0.3,
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "C": 1.0
+  },
+  "seed": 1,
+  "shards": [
+    "HFCF_small_0.parquet",
+    "HFCF_small_101.parquet",
+    "HFCF_small_117.parquet",
+    "HFCF_small_125.parquet",
+    "HFCF_small_133.parquet",
+    "HFCF_small_141.parquet",
+    "HFCF_small_157.parquet",
+    "HFCF_small_165.parquet",
+    "HFCF_small_173.parquet",
+    "HFCF_small_181.parquet",
+    "HFCF_small_20.parquet",
+    "HFCF_small_40.parquet",
+    "HFCF_small_60.parquet",
+    "HFCF_small_66.parquet",
+    "HFCF_small_67.parquet",
+    "HFCF_small_68.parquet",
+    "HFCF_small_69.parquet",
+    "HFCF_small_70.parquet",
+    "HFCF_small_71.parquet",
+    "HFCF_small_72.parquet",
+    "HFCF_small_73.parquet",
+    "HFCF_small_74.parquet",
+    "HFCF_small_75.parquet",
+    "HFCF_small_76.parquet",
+    "HFCF_small_77.parquet",
+    "HFCF_small_78.parquet",
+    "HFCF_small_79.parquet",
+    "HFCF_small_80.parquet",
+    "HFCF_small_81.parquet",
+    "HFCF_small_82.parquet",
+    "HFCF_small_83.parquet",
+    "HFCF_small_87.parquet",
+    "HFCF_small_88.parquet"
+  ],
+  "val_threshold": 0.5547488927841188,
+  "0.5": {
+    "val": {
+      "n_real": 1800,
+      "n_fake": 1925,
+      "accuracy": 0.9234899328859061,
+      "fpr": 0.0661111111111111,
+      "fnr": 0.08623376623376622,
+      "auc": 0.977332178932179
+    },
+    "test_seen": {
+      "n_real": 3600,
+      "n_fake": 3852,
+      "accuracy": 0.9176060118089103,
+      "fpr": 0.07,
+      "fnr": 0.09397715472481827,
+      "auc": 0.9762972337602399
+    },
+    "test_unseen": {
+      "n_real": 3600,
+      "n_fake": 4745,
+      "accuracy": 0.9158777711204314,
+      "fpr": 0.07,
+      "fnr": 0.09483667017913588,
+      "auc": 0.9754858330406276
+    }
+  },
+  "val_fpr5": {
+    "val": {
+      "n_real": 1800,
+      "n_fake": 1925,
+      "accuracy": 0.9226845637583893,
+      "fpr": 0.050555555555555555,
+      "fnr": 0.10233766233766228,
+      "auc": 0.977332178932179
+    },
+    "test_seen": {
+      "n_real": 3600,
+      "n_fake": 3852,
+      "accuracy": 0.9129092860976918,
+      "fpr": 0.05722222222222222,
+      "fnr": 0.11500519210799587,
+      "auc": 0.9762972337602399
+    },
+    "test_unseen": {
+      "n_real": 3600,
+      "n_fake": 4745,
+      "accuracy": 0.9102456560814859,
+      "fpr": 0.05722222222222222,
+      "fnr": 0.11443624868282398,
+      "auc": 0.9754858330406276
+    }
+  }
+}

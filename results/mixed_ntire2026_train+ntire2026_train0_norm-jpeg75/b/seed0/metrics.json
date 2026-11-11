@@ -1,0 +1,53 @@
+{
+  "args": {
+    "methods": [
+      "a_gbt",
+      "b"
+    ],
+    "extra": [
+      [
+        "ntire2026_train",
+        "D:/datasets/ntire2026-aigi-train",
+        "manifest.csv"
+      ],
+      [
+        "ntire2026_train0",
+        "D:/datasets/ntire2026-aigi-train",
+        "manifest_shard0.csv"
+      ]
+    ],
+    "test": [
+      [
+        "ntire2026_val",
+        "D:/datasets/ntire2026-aigi-val",
+        "manifest.csv"
+      ],
+      [
+        "ntire2026_test",
+        "D:/datasets/ntire2026-aigi-test",
+        "manifest.csv"
+      ],
+      [
+        "aigi_now_pixel",
+        "D:/datasets/aigi-now",
+        "manifest_pixel.csv"
+      ]
+    ],
+    "no_cf": false,
+    "train_aug": false,
+    "aug_extra": false,
+    "aug_scheme": "rj",
+    "holdout": 0.3,
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "C": 1.0,
+    "input": "jpeg75"
+  },
+  "method": "b",
+  "seed": 0,
+  "n_train": 84466,
+  "val_threshold": 0.7159857749938966
+}

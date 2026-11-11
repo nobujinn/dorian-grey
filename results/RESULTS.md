@@ -24,6 +24,8 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `faces_ff_c23/` | FaceForensics++ c23 face crops (section 15): `metrics.csv` per method, protocol, held-out manipulation, frame / video level |
 | `external_ff_c23_faces/` | Community Forensics models applied zero-shot to the face crops (section 15) |
 | `external_df40_ff_test/` | FF++ face models on DF40 SimSwap / InSwap test frames, frame and video level (section 17) |
+| `mixed_ntire2026_train+ntire2026_train0_norm-jpeg75/`, `…_aug-deg_augextra_norm-jpeg75/` | CF + two NTIRE shards, without / with blur-noise augmentation (section 18.1) |
+| `method_{a_gbt,b}_aug-deg_norm-jpeg75/`, `robustness_{a_gbt,b}_aug-deg_norm-jpeg75/` | `deg` augmentation: 5 seeds on CF and robustness (sections 18.2, 18.3) |
 | `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
 | `method_{a_gbt,b}_aug_norm-jpeg75/`, `mixed_ntire2026_train_aug_norm-jpeg75/`, `robustness_*_norm-jpeg75/` | Augmentation with normalised input, robustness of the normalised models (section 16) |
 | `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
@@ -1115,7 +1117,60 @@ At the FF++ `val_fpr5` threshold (frame level): DF40 real frames flagged 30.3 % 
 - Caveats: two swap methods only (the zips behind DF40's links did not contain the other methods' test split);
   one run; FF++ identities (cross-method, not cross-identity).
 
-## 18. Open issues / next steps
+## 18. More NTIRE data and blur / noise augmentation (chain of 8.–9. 11., written up 11. 11.)
+
+Two changes tested separately, all with normalised input (JPEG q75): **(a) a second NTIRE training shard**
+(shard 0: 50,000 images, 64 % fake; n_train 44,466 → 84,466; `mixed --extra ntire2026_train … --extra ntire2026_train0 …`, no augmentation), and
+**(b) augmentation scheme `deg`** (`perturb.random_augment`: blur p 0.3 σ 0.5–2, noise p 0.3 σ 1–6, then the
+resize + JPEG of the `rj` scheme), applied to CF and to both NTIRE shards (`--train-aug --aug-extra --aug-scheme deg`).
+Runs `mixed_ntire2026_train+ntire2026_train0_norm-jpeg75/20261108-190103` and
+`…_aug-deg_augextra_norm-jpeg75/20261109-183417` (3 seeds), `method_{a_gbt,b}_aug-deg_norm-jpeg75` (5 seeds),
+`robustness_{a_gbt,b}_aug-deg_norm-jpeg75` (seed 0).
+
+### 18.1 Independent sets (AUC, mean of 3 seeds): one shard (14) → two shards → two shards + `deg`
+
+| Test set | A, trees | B |
+|---|---|---|
+| CF, unseen generators (FNR at the pooled threshold) | 0.872 → 0.848 → 0.840 (0.679 → 0.714 → 0.737) | 0.965 → 0.951 → 0.948 (0.272 → 0.355 → 0.379) |
+| NTIRE shard 5, held-out 10 % | 0.846 → 0.885 → 0.877 | 0.902 → 0.928 → 0.926 |
+| NTIRE validation (clean / distorted) | 0.710 → 0.739 → 0.736 (0.805 → 0.845 → 0.832 / 0.653 → 0.671 → 0.680) | 0.747 → **0.783** → 0.784 (0.829 → 0.870 → 0.863 / 0.709 → 0.737 → 0.747) |
+| NTIRE public test (clean / distorted) | 0.597 → 0.609 → 0.605 (0.654 → 0.685 → 0.667 / 0.540 → 0.532 → 0.541) | 0.591 → **0.629** → 0.624 (0.652 → 0.703 → 0.690 / 0.541 → 0.561 → 0.561) |
+| AIGI-Now, all (FPR) | 0.856 → 0.829 → 0.826 (0.034 → 0.037 → 0.036) | 0.891 → 0.892 → 0.885 (0.023 → 0.020 → 0.019) |
+
+### 18.2 Community Forensics, 5 seeds, unseen generators (`classify --input jpeg75 --train-aug --aug-scheme deg`)
+
+AUC (FNR at 5 % validation FPR): B 0.968 ± 0.013 (0.148 ± 0.056); A trees 0.885 ± 0.017 (0.493 ± 0.034).
+Normalised without augmentation (9.1): B 0.968 (0.140), A trees 0.897 (0.453); with `rj` augmentation (16.1) similar.
+
+### 18.3 Robustness, unseen generators (seed 0): norm. + `rj` aug. (16.3) → norm. + `deg` aug.; AUC (FPR / FNR)
+
+| Condition | B | A, trees |
+|---|---|---|
+| none | 0.968 (0.058 / 0.134) → 0.965 (0.061 / 0.147) | 0.875 (0.054 / 0.485) → 0.874 (0.056 / 0.504) |
+| JPEG 50 | 0.953 (0.076 / 0.189) → 0.949 (0.072 / 0.210) | 0.861 (0.035 / 0.551) → 0.853 (0.047 / 0.603) |
+| resize ×1.5 | 0.947 (0.196 / 0.076) → 0.940 (0.179 / 0.102) | 0.796 (0.453 / 0.180) → **0.682** (0.463 / 0.295) |
+| blur σ=1 | 0.937 (0.159 / 0.115) → 0.936 (0.126 / 0.158) | 0.716 (0.717 / 0.089) → 0.721 (**0.208** / 0.488) |
+| noise σ=3 | 0.961 (0.049 / 0.177) → 0.958 (0.052 / 0.190) | 0.873 (0.040 / 0.539) → 0.873 (0.037 / 0.577) |
+| WebP 75 | 0.943 (0.217 / 0.071) → 0.940 (0.208 / 0.079) | 0.840 (0.103 / 0.510) → 0.838 (0.102 / 0.519) |
+| resize ×0.75 + JPEG 80 | 0.966 (0.070 / 0.134) → 0.965 (0.077 / 0.136) | 0.857 (0.081 / 0.445) → 0.845 (0.096 / 0.488) |
+
+**Findings**
+- **More NTIRE data helps Method B on NTIRE** (validation 0.747 → 0.783, public test 0.591 → 0.629, clean and
+  distorted parts alike) **and costs on Community Forensics**: the pooled threshold now sits where B misses 36 %
+  instead of 27 % of unseen CF fakes (AUC 0.965 → 0.951). AIGI-Now is unchanged (0.891 → 0.892). Method A gains
+  less on NTIRE and loses on AIGI-Now (0.856 → 0.829). The training mix trades one source against another; one
+  shared threshold makes it visible (per-source calibration is the open item).
+- **Blur / noise augmentation does not improve any ranking.** AUC is unchanged on every independent set and under
+  every perturbation, except a loss for A under upscaling (resize ×1.5: 0.796 → 0.682). What it changes is the
+  decision under blur: A no longer flags blurred real images (FPR 0.717 → 0.208), but it now misses blurred fakes
+  (FNR 0.089 → 0.488) at the same AUC, i.e. the scores of blurred images move towards "real" for both classes. The
+  features do not separate blurred reals from blurred fakes better; the classifier only learned that blur is not
+  evidence of "fake".
+- **Consequence:** augmentation has reached its limit for these frozen features; distorted images stay the weak
+  point (NTIRE distorted ≈ 0.54–0.75). The framework default stays `mixed_ntire2026_train_aug_norm-jpeg75`
+  (section 16.2); the two-shard model is the better choice only if NTIRE-like web images matter more than CF.
+
+## 19. Open issues / next steps
 
 - **CLIP activation mismatch (11. 11.):** open_clip warns that the `ViT-L-14` config uses GELU, while the OpenAI
   weights were trained with QuickGELU (`ViT-L-14-quickgelu`). All Method B features so far were extracted this way,
