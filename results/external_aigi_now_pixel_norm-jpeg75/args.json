@@ -4,14 +4,20 @@
   "manifest": "manifest_pixel.csv",
   "input": "jpeg75",
   "runs": [
-    "method_a_norm-jpeg75",
+    "method_b_norm-jpeg75",
+    "method_b_norm-jpeg75_aligned",
+    "method_b_norm-jpeg75_aligned-only",
     "method_a_gbt_norm-jpeg75",
-    "method_b_norm-jpeg75"
+    "method_a_gbt_norm-jpeg75_aligned",
+    "method_a_gbt_norm-jpeg75_aligned-only"
   ],
   "n": 18000,
   "models": {
-    "method_a_norm-jpeg75": "20261031-133326",
+    "method_b_norm-jpeg75": "20261031-133746",
+    "method_b_norm-jpeg75_aligned": "20261116-013228",
+    "method_b_norm-jpeg75_aligned-only": "20261116-013249",
     "method_a_gbt_norm-jpeg75": "20261031-133350",
-    "method_b_norm-jpeg75": "20261031-133746"
+    "method_a_gbt_norm-jpeg75_aligned": "20261116-013308",
+    "method_a_gbt_norm-jpeg75_aligned-only": "20261116-013716"
   }
 }

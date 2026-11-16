@@ -28,6 +28,7 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `method_{a_gbt,b}_aug-deg_norm-jpeg75/`, `robustness_{a_gbt,b}_aug-deg_norm-jpeg75/` | `deg` augmentation: 5 seeds on CF and robustness (sections 18.2, 18.3) |
 | `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
 | `method_{a_gbt,b}_aug_norm-jpeg75/`, `mixed_ntire2026_train_aug_norm-jpeg75/`, `robustness_*_norm-jpeg75/` | Augmentation with normalised input, robustness of the normalised models (section 16) |
+| `method_{a_gbt,b}_norm-jpeg75_aligned/`, `…_aligned-only/`, `external_chameleon_norm-jpeg75/` | Aligned training data (SD-VAE reconstructions of the reals as fakes), CF 5 seeds and independent sets incl. Chameleon (section 19) |
 | `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
 | `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training), `robustness_classifier.pdf/.png` (A linear vs. A trees vs. B, augmented training), `robustness_unseen_ops.pdf/.png` (operations not used in training, section 8) |
 
@@ -868,6 +869,8 @@ The models of section 9 (every image re-encoded as JPEG q75 before feature extra
 augmentation; seed 0, CF thresholds) on NTIRE validation and AIGI-Now, with the same re-encoding applied
 to the test images (`external --input jpeg75`). This removes any file-format difference between the
 classes, also on AIGI-Now (section 11: JPEG reals vs. partly PNG fakes).
+Exported runs: `external_aigi_now_pixel_norm-jpeg75/20261107-132843/`, `external_ntire2026_val_norm-jpeg75/20261107-121726/`
+(the top level of these folders holds the later run of section 19).
 
 ### 13.1 AUC (FPR / FNR at the 5 % validation-FPR threshold in brackets for "all")
 
@@ -1192,8 +1195,72 @@ Normalised without augmentation (9.1): B 0.968 (0.140), A trees 0.897 (0.453); w
   point (NTIRE distorted ≈ 0.54–0.75). The framework default stays `mixed_ntire2026_train_aug_norm-jpeg75`
   (section 16.2); the two-shard model is the better choice only if NTIRE-like web images matter more than CF.
 
-## 19. Open issues / next steps
+## 19. Aligned training data: autoencoder reconstructions of the real images as fakes (15.–16. 11. 2026)
 
+Idea from AlignedForensics / B-Free / DDA: pass every real training image through the Stable Diffusion
+autoencoder (`stabilityai/sd-vae-ft-mse`, encode + decode of the latent mean; `dorian_gray/recon.py`) and use the
+reconstruction as an extra fake. Real and reconstruction share content and size, so the only difference is the
+decoder's trace, which every latent-diffusion generator leaves. Images are center-cropped to at most 320 px first
+(multiples of 8, so the JPEG grid is kept; both methods look only at the central 224 / 256 px). The reconstruction
+then goes through the same JPEG q75 normalisation as everything else. The reconstructions are made only from the 9
+CF real shards (18,000 images, ~0.8 s each on the GTX 1050). Only reconstructions of *training* reals are
+used, and the test sets are exactly those of section 9.
+
+`prepare --method a b --normalize jpeg75 --reconstruct`, then `classify --input jpeg75 --aligned` (CF fakes +
+reconstructions) and `--aligned --no-fakes` (reconstructions as the *only* fakes: no generated image in training).
+Independent sets with `external --input jpeg75`, seed 0, CF thresholds. Runs `method_{b,a_gbt}_norm-jpeg75_aligned`,
+`…_aligned-only` (5 seeds), `external_{aigi_now_pixel,ntire2026_val,chameleon}_norm-jpeg75` (new run of each). Baseline =
+section 9 (normalised, no aligned data). **Chameleon** (AIDE paper, `yan2025sanity`; test split: 14,863 real,
+11,170 AI-generated images, chosen to look real to humans) is evaluated here for the first time.
+
+### 19.1 Community Forensics (5 seeds): AUC, FNR at 5 % validation FPR in brackets
+
+| Training fakes | B, seen | B, unseen | A trees, seen | A trees, unseen |
+|---|---|---|---|---|
+| CF fakes (section 9) | 0.978 (0.103) | 0.968 ± 0.013 (0.140) | 0.944 (0.273) | 0.897 ± 0.012 (0.453) |
+| CF fakes + reconstructions | 0.965 (0.144) | 0.954 ± 0.028 (0.183) | 0.930 (0.318) | 0.899 ± 0.007 (0.439) |
+| reconstructions only | 0.853 (0.481) | 0.846 ± 0.059 (0.485) | 0.812 (0.693) | 0.836 ± 0.015 (0.629) |
+
+Real images flagged at threshold 0.5, JPEG / PNG (mean over seeds): B 0.085 / 0.068 (section 9) → 0.132 / 0.196 with
+reconstructions → **0.124 / 0.357** with reconstructions only; A trees 0.151 / 0.118 → 0.236 / 0.252 → 0.200 / 0.283.
+
+### 19.2 Independent sets (seed 0): AUC (FPR / FNR at the CF 5 % validation-FPR threshold)
+
+| Test set | B | B + recon. | B, recon. only | A trees | A trees + recon. | A trees, recon. only |
+|---|---|---|---|---|---|---|
+| AIGI-Now, all | 0.870 (0.071 / 0.510) | **0.890** (0.056 / 0.511) | 0.866 (0.028 / 0.679) | 0.866 (0.055 / 0.502) | **0.891** (0.044 / 0.503) | 0.843 (0.042 / 0.682) |
+| NTIRE validation, all | 0.547 (0.726 / 0.239) | 0.553 (0.815 / 0.151) | 0.528 (0.644 / 0.324) | 0.535 (0.529 / 0.411) | 0.552 (0.505 / 0.412) | 0.574 (0.276 / 0.627) |
+| Chameleon | 0.709 (0.508 / 0.169) | **0.785** (0.399 / 0.178) | **0.796** (0.128 / 0.436) | 0.532 (0.579 / 0.364) | 0.502 (0.595 / 0.389) | 0.475 (0.425 / 0.623) |
+
+**Findings**
+- **Reconstructions alone teach a working detector.** Trained with no generated image at all, B reaches AUC 0.846 on
+  unseen CF generators (A trees 0.836) and 0.866 on AIGI-Now. The SD decoder trace is shared widely, but not by all
+  generators: unseen GANs are detected at 0.54–0.99 depending on the split (B, threshold 0.5), latent-diffusion
+  generators at 0.82–0.87.
+- **Added to the CF fakes, the reconstructions help on the independent sets and cost a little on CF.** AIGI-Now
+  improves for both methods (B 0.870 → 0.890, A 0.866 → 0.891). Chameleon improves for B (0.709 → 0.785), which is the
+  largest single gain from a training change so far. CF unseen AUC of B drops slightly (0.968 → 0.954, FNR at 5 % FPR
+  0.140 → 0.183). NTIRE stays at chance (0.53–0.57): its problem is the real-image source, not the fakes (sections 12, 13).
+- **Method A gains nothing on Chameleon** (0.53 → 0.50; chance), so on hard, realistic fakes the forensic
+  features carry no signal even with aligned training. This supports the roles chosen for the framework: B decides
+  "generated or not", A localises edits.
+- **A new shortcut: compression history.** Real JPEGs are compressed twice (original + q75), while reconstructions are
+  compressed once, because the decoder removes the original JPEG history. With reconstructions as the only fakes,
+  B flags real PNG images (compressed once, like the fakes) 2.9× as often as real JPEGs (0.357 vs. 0.124). The aligned
+  setup removes the content and format difference but adds this one. The fix used by AlignedForensics: compress
+  each reconstruction with the JPEG quality of its original before normalisation.
+- **The CF threshold does not hold on Chameleon** (real FPR 0.40–0.51 for B with CF fakes), as on NTIRE. The
+  reconstruction-only model flags only 12.8 % of Chameleon reals at the highest AUC (0.796). Its scores are better
+  calibrated for these reals, but it misses 44 % of the fakes.
+- **Consequence:** aligned data is worth keeping for B. The default model stays `mixed_ntire2026_train_aug_norm-jpeg75`
+  (section 16.2) until (1) the reconstructions get the JPEG history of their originals and (2) aligned data is combined
+  with the NTIRE training data. QuickGELU is still open (section 20), and these features use the same backbone as all
+  other B runs.
+
+## 20. Open issues / next steps
+
+- **Aligned data (19):** give each reconstruction the JPEG history of its original (compression-history shortcut),
+  then combine with the NTIRE training data; evaluate on Chameleon as well.
 - **CLIP activation mismatch (11. 11.):** open_clip warns that the `ViT-L-14` config uses GELU, while the OpenAI
   weights were trained with QuickGELU (`ViT-L-14-quickgelu`). All Method B features so far were extracted this way,
   consistently, so the comparisons hold, but the backbone is not exactly the original CLIP. Fix = switch the model

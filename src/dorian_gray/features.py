@@ -58,7 +58,7 @@ def iter_shard(path: Path, rows: np.ndarray, batch_size: int = 32) -> Iterator[t
 
 def extract_shard(path: Path, extractors: dict[str, tuple], max_images: int | None = None,
                   batch_size: int = 32, augment_seed: int | None = None, normalize: str | None = None,
-                  augment_scheme: str = "rj") -> None:
+                  augment_scheme: str = "rj", transform=None) -> None:
     """Embed (a seeded sample of) a shard once per extractor; extractors whose cache exists are skipped.
 
     extractors: cache name -> (callable images -> (N, D) array, storage dtype). Several extractors share
@@ -67,6 +67,8 @@ def extract_shard(path: Path, extractors: dict[str, tuple], max_images: int | No
     deterministically per (seed, shard, row); the applied parameters are stored next to the features.
     normalize: a `perturb.CONDITIONS` name applied to every image first (input normalisation, e.g.
     re-encoding every image as JPEG so that real and fake images share one compression history).
+    transform: a callable image -> image applied after augmentation and before normalisation, e.g. the
+    autoencoder reconstruction of `recon.VaeReconstructor` (aligned fakes).
     """
     todo = {n: e for n, e in extractors.items() if not (CACHE_DIR / "features" / n / f"{path.stem}.npz").exists()}
     if not todo:
@@ -81,6 +83,8 @@ def extract_shard(path: Path, extractors: dict[str, tuple], max_images: int | No
                        for im, r in zip(images, rows[pos:pos + len(images)])]
                 images = [im for im, _ in aug]
                 params.extend(prm for _, prm in aug)
+            if transform is not None:
+                images = [transform(im) for im in images]
             if normalize is not None:  # after augmentation: the distortion happened before the image reached us
                 images = [apply(im, normalize) for im in images]
             pos += len(images)

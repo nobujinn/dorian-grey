@@ -14,6 +14,8 @@ Usage: uv run python -m dorian_gray.experiments.prepare --method a b [--augment]
   (cache name <features>_norm-<condition>), used by `classify --input <condition>`.
   Both together: the random distortion first, then the normalisation (cache <features>_norm-<condition>_aug).
   --aug-scheme deg adds random blur and noise (cache suffix _aug-deg instead of _aug).
+  --reconstruct caches features of the autoencoder reconstructions of the *real* shards only (`recon`, aligned
+  fakes for `classify --aligned`; cache <features>[_norm-<condition>]_recon-sdvae).
 """
 
 import argparse
@@ -47,6 +49,7 @@ FAKE_SHARDS = [
 ]
 MAX_REAL, MAX_FAKE = 2000, 1000
 AUGMENT_SEED = 1
+RECON_SUFFIX = "_recon-sdvae"
 
 
 def main():
@@ -55,19 +58,26 @@ def main():
     ap.add_argument("--augment", action="store_true")
     ap.add_argument("--aug-scheme", choices=AUG_SCHEMES, default="rj", help="rj: resize + JPEG; deg: + blur, noise")
     ap.add_argument("--normalize", choices=[c for c in CONDITIONS if c != "clean"])
+    ap.add_argument("--reconstruct", action="store_true", help="autoencoder reconstructions of the real shards")
     args = ap.parse_args()
+    assert not (args.reconstruct and args.augment), "reconstruction and augmentation are separate caches"
 
     manifest = pd.read_parquet(LOCAL_DIR / "manifest.parquet")
     sizes = manifest.groupby("shard").shard_bytes.first()
     print(f"{len(REAL_SHARDS) + len(FAKE_SHARDS)} shards, {sizes[REAL_SHARDS + FAKE_SHARDS].sum() / 1e9:.1f} GB")
     paths = download_shards(REAL_SHARDS + FAKE_SHARDS)
     # <features>_norm-<condition>_aug: what `classify` / `mixed` load for `--input <condition> --train-aug`
-    suffix = (f"_norm-{args.normalize}" if args.normalize else "") + (aug_suffix(args.aug_scheme) if args.augment else "")
+    suffix = ((f"_norm-{args.normalize}" if args.normalize else "") + (aug_suffix(args.aug_scheme) if args.augment else "")
+              + (RECON_SUFFIX if args.reconstruct else ""))
+    transform = None
+    if args.reconstruct:
+        from dorian_gray.recon import VaeReconstructor
+        transform, paths = VaeReconstructor(), [p for p in paths if p.name in REAL_SHARDS]
     extractors = {METHODS[m].features + suffix: (METHODS[m].extractor(), METHODS[m].cache_dtype) for m in args.method}
     for path in paths:
         extract_shard(path, extractors, MAX_REAL if path.name in REAL_SHARDS else MAX_FAKE,
                       augment_seed=AUGMENT_SEED if args.augment else None, normalize=args.normalize,
-                      augment_scheme=args.aug_scheme)
+                      augment_scheme=args.aug_scheme, transform=transform)
 
 
 if __name__ == "__main__":

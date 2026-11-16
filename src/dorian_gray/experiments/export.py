@@ -13,6 +13,20 @@ from dorian_gray.config import REPO_ROOT, RUNS_DIR
 RESULTS_DIR = REPO_ROOT / "results"
 KEEP = {".csv", ".json", ".pdf", ".png"}
 SKIP = {"method_b_prototype"}  # pre-refactor runs, reproduced exactly by method_b
+# Older runs that RESULTS.md still cites and the latest run does not contain (other models), exported to
+# results/<experiment>/<run>/ next to the latest one.
+PINNED = {
+    "external_aigi_now_pixel_norm-jpeg75": ["20261107-132843"],  # section 13 (incl. Method A, LR)
+    "external_ntire2026_val_norm-jpeg75": ["20261107-121726"],  # section 13
+}
+
+
+def copy_tables(source, target):
+    for f in source.rglob("*"):
+        if f.is_file() and f.suffix in KEEP:
+            dest = target / f.relative_to(source)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, dest)
 
 
 def main():
@@ -23,12 +37,11 @@ def main():
             continue
         target = RESULTS_DIR / experiment.name
         shutil.rmtree(target, ignore_errors=True)
-        for f in source.rglob("*"):
-            if f.is_file() and f.suffix in KEEP:
-                dest = target / f.relative_to(source)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(f, dest)
+        copy_tables(source, target)
         print(f"{experiment.name}: {source.name} -> {target.relative_to(REPO_ROOT)}")
+        for run in PINNED.get(experiment.name, []):
+            copy_tables(experiment / run, target / run)
+            print(f"  + pinned {run}")
 
 
 if __name__ == "__main__":

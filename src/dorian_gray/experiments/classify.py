@@ -69,12 +69,24 @@ def features_matrix(df: pd.DataFrame) -> np.ndarray:
     return np.stack(df["features"].to_numpy()).astype(np.float32)
 
 
-def fit_probe(df: pd.DataFrame, classifier, augmented: pd.DataFrame | None = None):
-    """Fit on the training split; with `augmented`, also on the augmented copies of the training images."""
-    train = df[df.part == "train"]
-    if augmented is not None:
-        train = pd.concat([train[["features", "label"]], augmented[augmented.part == "train"][["features", "label"]]])
+def fit_probe(df: pd.DataFrame, classifier, augmented: pd.DataFrame | None = None,
+              aligned: pd.DataFrame | None = None, no_fakes: bool = False):
+    """Fit on the training split; with `augmented`, also on the augmented copies of the training images; with
+    `aligned`, also on the reconstructions of the training reals (labelled fake); `no_fakes` drops the
+    dataset's own fakes, so the only fakes are the aligned reconstructions."""
+    train = df[(df.part == "train") & ~((df.label == 1) & no_fakes)][["features", "label"]]
+    extra = [x[x.part == "train"][["features", "label"]] for x in (augmented, aligned) if x is not None]
+    train = pd.concat([train, *extra])
     return classifier.fit(features_matrix(train), train["label"])
+
+
+def load_aligned(features: str, df: pd.DataFrame) -> pd.DataFrame:
+    """Features of the autoencoder reconstructions of the real images (`prepare --reconstruct`), labelled fake,
+    with the split of their real originals (only training reals' reconstructions are used for training)."""
+    from dorian_gray.experiments.prepare import RECON_SUFFIX, REAL_SHARDS
+    rec = load_cached(features + RECON_SUFFIX, [s for s in sorted(df.shard.unique()) if s in REAL_SHARDS])
+    rec = rec.merge(df[["shard", "row", "part"]], on=["shard", "row"], validate="1:1")
+    return rec.assign(label=1)
 
 
 def load_augmented(features: str, df: pd.DataFrame, scheme: str = "rj") -> pd.DataFrame:
@@ -114,7 +126,10 @@ def run(args, seed: int, out) -> dict:
     augmented = load_augmented(features, df, args.aug_scheme) if args.train_aug else None
     if augmented is not None and names is not None:
         select_groups(augmented, args.groups)
-    probe = fit_probe(df, method.classifier(args.C), augmented)
+    aligned = load_aligned(features, df) if args.aligned else None
+    if aligned is not None and names is not None:
+        select_groups(aligned, args.groups)
+    probe = fit_probe(df, method.classifier(args.C), augmented, aligned, args.no_fakes)
     df["p_fake"] = probe.predict_proba(features_matrix(df))[:, 1]
     threshold = val_threshold(df)
     results = dict(zip(OPERATING_POINTS, [evaluate(df), evaluate(df, threshold)]))
@@ -160,13 +175,17 @@ def main():
                     help="also train on the augmented (resized / recompressed) copies of the training images")
     ap.add_argument("--aug-scheme", choices=AUG_SCHEMES, default="rj", help="rj: resize + JPEG; deg: + blur, noise")
     ap.add_argument("--input", default=None, help="input normalisation applied to every image (`prepare --normalize`)")
+    ap.add_argument("--aligned", action="store_true",
+                    help="also train on autoencoder reconstructions of the training reals as fakes (`prepare --reconstruct`)")
+    ap.add_argument("--no-fakes", action="store_true", help="with --aligned: drop the dataset's own fakes from training")
     ap.add_argument("--holdout", type=float, default=0.3, help="fraction of fake generators held out")
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4],
                     help="one split per seed; which generators are held out varies a lot between seeds")
     ap.add_argument("--C", type=float, default=1.0)
     args = ap.parse_args()
+    assert args.aligned or not args.no_fakes, "--no-fakes needs --aligned"
 
-    tag = f"method_{args.method}" + ("" if args.method == "b" or len(args.groups) == 4 else "_" + "+".join(args.groups)) + (aug_suffix(args.aug_scheme) if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "")
+    tag = f"method_{args.method}" + ("" if args.method == "b" or len(args.groups) == 4 else "_" + "+".join(args.groups)) + (aug_suffix(args.aug_scheme) if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "") + ("_aligned" if args.aligned else "") + ("-only" if args.no_fakes else "")
     out = RUNS_DIR / tag / datetime.now().strftime("%Y%m%d-%H%M%S")
     rows = [{"seed": seed, "threshold": op, "set": k, **v} for seed in args.seeds
             for op, r in run(args, seed, out / f"seed{seed}").items() for k, v in r.items()]
