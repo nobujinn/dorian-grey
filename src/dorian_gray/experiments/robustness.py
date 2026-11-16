@@ -24,8 +24,8 @@ from tqdm import tqdm
 
 from dorian_gray.config import CACHE_DIR, RUNS_DIR
 from dorian_gray.data.community_forensics import LOCAL_DIR
-from dorian_gray.experiments.classify import (OPERATING_POINTS, features_matrix, fit_probe, load_augmented,
-                                              load_split, val_threshold)
+from dorian_gray.experiments.classify import (OPERATING_POINTS, features_matrix, fit_probe, load_aligned,
+                                              load_augmented, load_split, val_threshold)
 from dorian_gray.features import iter_shard
 from dorian_gray.methods import METHODS
 from dorian_gray.metrics import binary_metrics
@@ -93,13 +93,18 @@ def main():
     ap.add_argument("--train-aug", action="store_true", help="classifier also trained on augmented copies")
     ap.add_argument("--aug-scheme", choices=AUG_SCHEMES, default="rj")
     ap.add_argument("--input", default=None, help="input normalisation after each perturbation, e.g. jpeg75")
+    ap.add_argument("--aligned", nargs="?", const="plain", choices=["plain", "jpeg"],
+                    help="classifier also trained on autoencoder reconstructions (`classify --aligned`)")
+    ap.add_argument("--no-fakes", action="store_true", help="with --aligned: reconstructions are the only fakes")
     args = ap.parse_args()
+    assert args.aligned or not args.no_fakes, "--no-fakes needs --aligned"
 
     method = METHODS[args.method]
     features = method.features + (f"_norm-{args.input}" if args.input else "")
     cache = f"{features}_robust"
     df = load_split(features, args.holdout, args.seed)
-    probe = fit_probe(df, method.classifier(args.C), load_augmented(features, df, args.aug_scheme) if args.train_aug else None)
+    probe = fit_probe(df, method.classifier(args.C), load_augmented(features, df, args.aug_scheme) if args.train_aug else None,
+                      load_aligned(features, df, args.aligned) if args.aligned else None, args.no_fakes)
     val = df.part == "val"
     df.loc[val, "p_fake"] = probe.predict_proba(features_matrix(df[val]))[:, 1]
     thresholds = dict(zip(OPERATING_POINTS, [0.5, val_threshold(df)]))
@@ -120,7 +125,8 @@ def main():
         by_format.append(flagged.reset_index().assign(condition=c))
     metrics, by_format = pd.DataFrame(metrics), pd.concat(by_format)
 
-    tag = f"robustness_{args.method}" + (aug_suffix(args.aug_scheme) if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "")
+    tag = (f"robustness_{args.method}" + (aug_suffix(args.aug_scheme) if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "")
+           + ({"plain": "_aligned", "jpeg": "_aligned-jpeg"}[args.aligned] if args.aligned else "") + ("-only" if args.no_fakes else ""))
     out = RUNS_DIR / tag / datetime.now().strftime("%Y%m%d-%H%M%S")
     out.mkdir(parents=True)
     (out / "args.json").write_text(json.dumps({**vars(args), "thresholds": thresholds}, indent=2))

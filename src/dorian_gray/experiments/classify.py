@@ -80,11 +80,16 @@ def fit_probe(df: pd.DataFrame, classifier, augmented: pd.DataFrame | None = Non
     return classifier.fit(features_matrix(train), train["label"])
 
 
-def load_aligned(features: str, df: pd.DataFrame) -> pd.DataFrame:
-    """Features of the autoencoder reconstructions of the real images (`prepare --reconstruct`), labelled fake,
-    with the split of their real originals (only training reals' reconstructions are used for training)."""
-    from dorian_gray.experiments.prepare import RECON_SUFFIX, REAL_SHARDS
-    rec = load_cached(features + RECON_SUFFIX, [s for s in sorted(df.shard.unique()) if s in REAL_SHARDS])
+def load_aligned(features: str, df: pd.DataFrame, variant: str = "plain") -> pd.DataFrame:
+    """Features of the autoencoder reconstructions of the real images (`prepare --reconstruct <variant>`), labelled
+    fake, with the split of their real originals (only training reals' reconstructions are used for training).
+    Variant `jpeg` has its own cache only for the JPEG shards; the PNG shards are identical to `plain`."""
+    from dorian_gray.experiments.prepare import RECON_VARIANTS, REAL_JPEG_SHARDS, REAL_SHARDS
+    shards = [s for s in sorted(df.shard.unique()) if s in REAL_SHARDS]
+    own = [s for s in shards if variant == "plain" or s in REAL_JPEG_SHARDS]
+    rec = pd.concat([load_cached(features + RECON_VARIANTS[variant], own),
+                     *([load_cached(features + RECON_VARIANTS["plain"], [s for s in shards if s not in own])]
+                       if len(own) < len(shards) else [])], ignore_index=True)
     rec = rec.merge(df[["shard", "row", "part"]], on=["shard", "row"], validate="1:1")
     return rec.assign(label=1)
 
@@ -126,7 +131,7 @@ def run(args, seed: int, out) -> dict:
     augmented = load_augmented(features, df, args.aug_scheme) if args.train_aug else None
     if augmented is not None and names is not None:
         select_groups(augmented, args.groups)
-    aligned = load_aligned(features, df) if args.aligned else None
+    aligned = load_aligned(features, df, args.aligned) if args.aligned else None
     if aligned is not None and names is not None:
         select_groups(aligned, args.groups)
     probe = fit_probe(df, method.classifier(args.C), augmented, aligned, args.no_fakes)
@@ -175,8 +180,9 @@ def main():
                     help="also train on the augmented (resized / recompressed) copies of the training images")
     ap.add_argument("--aug-scheme", choices=AUG_SCHEMES, default="rj", help="rj: resize + JPEG; deg: + blur, noise")
     ap.add_argument("--input", default=None, help="input normalisation applied to every image (`prepare --normalize`)")
-    ap.add_argument("--aligned", action="store_true",
-                    help="also train on autoencoder reconstructions of the training reals as fakes (`prepare --reconstruct`)")
+    ap.add_argument("--aligned", nargs="?", const="plain", choices=["plain", "jpeg"],
+                    help="also train on autoencoder reconstructions of the training reals as fakes (`prepare --reconstruct`);"
+                         " `jpeg`: reconstructions re-encoded like their JPEG original")
     ap.add_argument("--no-fakes", action="store_true", help="with --aligned: drop the dataset's own fakes from training")
     ap.add_argument("--holdout", type=float, default=0.3, help="fraction of fake generators held out")
     ap.add_argument("--seeds", type=int, nargs="+", default=[0, 1, 2, 3, 4],
@@ -185,7 +191,7 @@ def main():
     args = ap.parse_args()
     assert args.aligned or not args.no_fakes, "--no-fakes needs --aligned"
 
-    tag = f"method_{args.method}" + ("" if args.method == "b" or len(args.groups) == 4 else "_" + "+".join(args.groups)) + (aug_suffix(args.aug_scheme) if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "") + ("_aligned" if args.aligned else "") + ("-only" if args.no_fakes else "")
+    tag = f"method_{args.method}" + ("" if args.method == "b" or len(args.groups) == 4 else "_" + "+".join(args.groups)) + (aug_suffix(args.aug_scheme) if args.train_aug else "") + (f"_norm-{args.input}" if args.input else "") + ({"plain": "_aligned", "jpeg": "_aligned-jpeg"}[args.aligned] if args.aligned else "") + ("-only" if args.no_fakes else "")
     out = RUNS_DIR / tag / datetime.now().strftime("%Y%m%d-%H%M%S")
     rows = [{"seed": seed, "threshold": op, "set": k, **v} for seed in args.seeds
             for op, r in run(args, seed, out / f"seed{seed}").items() for k, v in r.items()]

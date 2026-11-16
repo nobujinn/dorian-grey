@@ -15,7 +15,9 @@ Usage: uv run python -m dorian_gray.experiments.prepare --method a b [--augment]
   Both together: the random distortion first, then the normalisation (cache <features>_norm-<condition>_aug).
   --aug-scheme deg adds random blur and noise (cache suffix _aug-deg instead of _aug).
   --reconstruct caches features of the autoencoder reconstructions of the *real* shards only (`recon`, aligned
-  fakes for `classify --aligned`; cache <features>[_norm-<condition>]_recon-sdvae).
+  fakes for `classify --aligned`; cache <features>[_norm-<condition>]_recon-sdvae). `--reconstruct jpeg`
+  re-encodes each reconstruction like its JPEG original (`recon.match_jpeg`; JPEG shards only, cache suffix
+  _recon-sdvae-jpeg; `classify --aligned jpeg`).
 """
 
 import argparse
@@ -50,6 +52,11 @@ FAKE_SHARDS = [
 MAX_REAL, MAX_FAKE = 2000, 1000
 AUGMENT_SEED = 1
 RECON_SUFFIX = "_recon-sdvae"
+RECON_VARIANTS = {"plain": RECON_SUFFIX, "jpeg": RECON_SUFFIX + "-jpeg"}  # jpeg: reconstruction re-encoded like its original
+# Real shards whose images are JPEG (checked 16. 11.: all 2,000 sampled images of each are JPEG, those of the other
+# five shards all PNG). Only these differ between the `plain` and `jpeg` variants; for the PNG shards `jpeg` reuses
+# the `plain` cache (identical by construction, `recon.match_jpeg` leaves non-JPEG originals unchanged).
+REAL_JPEG_SHARDS = REAL_SHARDS[:4]
 
 
 def main():
@@ -58,7 +65,8 @@ def main():
     ap.add_argument("--augment", action="store_true")
     ap.add_argument("--aug-scheme", choices=AUG_SCHEMES, default="rj", help="rj: resize + JPEG; deg: + blur, noise")
     ap.add_argument("--normalize", choices=[c for c in CONDITIONS if c != "clean"])
-    ap.add_argument("--reconstruct", action="store_true", help="autoencoder reconstructions of the real shards")
+    ap.add_argument("--reconstruct", nargs="?", const="plain", choices=list(RECON_VARIANTS),
+                    help="autoencoder reconstructions of the real shards; `jpeg`: re-encoded like their original")
     args = ap.parse_args()
     assert not (args.reconstruct and args.augment), "reconstruction and augmentation are separate caches"
 
@@ -68,11 +76,13 @@ def main():
     paths = download_shards(REAL_SHARDS + FAKE_SHARDS)
     # <features>_norm-<condition>_aug: what `classify` / `mixed` load for `--input <condition> --train-aug`
     suffix = ((f"_norm-{args.normalize}" if args.normalize else "") + (aug_suffix(args.aug_scheme) if args.augment else "")
-              + (RECON_SUFFIX if args.reconstruct else ""))
+              + (RECON_VARIANTS[args.reconstruct] if args.reconstruct else ""))
     transform = None
     if args.reconstruct:
         from dorian_gray.recon import VaeReconstructor
-        transform, paths = VaeReconstructor(), [p for p in paths if p.name in REAL_SHARDS]
+        shards = REAL_JPEG_SHARDS if args.reconstruct == "jpeg" else REAL_SHARDS
+        transform = VaeReconstructor(match_jpeg=args.reconstruct == "jpeg")
+        paths = [p for p in paths if p.name in shards]
     extractors = {METHODS[m].features + suffix: (METHODS[m].extractor(), METHODS[m].cache_dtype) for m in args.method}
     for path in paths:
         extract_shard(path, extractors, MAX_REAL if path.name in REAL_SHARDS else MAX_FAKE,

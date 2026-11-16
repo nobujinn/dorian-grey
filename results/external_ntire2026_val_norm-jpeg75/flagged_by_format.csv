@@ -11,6 +11,14 @@ label,format,size,mean,model,threshold
 1,JPEG,6250,0.88752,method_b_norm-jpeg75_aligned-only,0.5
 0,JPEG,6250,0.64416,method_b_norm-jpeg75_aligned-only,val_fpr5
 1,JPEG,6250,0.67632,method_b_norm-jpeg75_aligned-only,val_fpr5
+0,JPEG,6250,0.92336,method_b_norm-jpeg75_aligned-jpeg,0.5
+1,JPEG,6250,0.94304,method_b_norm-jpeg75_aligned-jpeg,0.5
+0,JPEG,6250,0.81856,method_b_norm-jpeg75_aligned-jpeg,val_fpr5
+1,JPEG,6250,0.85648,method_b_norm-jpeg75_aligned-jpeg,val_fpr5
+0,JPEG,6250,0.87824,method_b_norm-jpeg75_aligned-jpeg-only,0.5
+1,JPEG,6250,0.888,method_b_norm-jpeg75_aligned-jpeg-only,0.5
+0,JPEG,6250,0.64624,method_b_norm-jpeg75_aligned-jpeg-only,val_fpr5
+1,JPEG,6250,0.68592,method_b_norm-jpeg75_aligned-jpeg-only,val_fpr5
 0,JPEG,6250,0.6888,method_a_gbt_norm-jpeg75,0.5
 1,JPEG,6250,0.73632,method_a_gbt_norm-jpeg75,0.5
 0,JPEG,6250,0.52912,method_a_gbt_norm-jpeg75,val_fpr5
@@ -23,3 +31,11 @@ label,format,size,mean,model,threshold
 1,JPEG,6250,0.72416,method_a_gbt_norm-jpeg75_aligned-only,0.5
 0,JPEG,6250,0.27648,method_a_gbt_norm-jpeg75_aligned-only,val_fpr5
 1,JPEG,6250,0.37328,method_a_gbt_norm-jpeg75_aligned-only,val_fpr5
+0,JPEG,6250,0.80656,method_a_gbt_norm-jpeg75_aligned-jpeg,0.5
+1,JPEG,6250,0.8632,method_a_gbt_norm-jpeg75_aligned-jpeg,0.5
+0,JPEG,6250,0.49664,method_a_gbt_norm-jpeg75_aligned-jpeg,val_fpr5
+1,JPEG,6250,0.58048,method_a_gbt_norm-jpeg75_aligned-jpeg,val_fpr5
+0,JPEG,6250,0.62688,method_a_gbt_norm-jpeg75_aligned-jpeg-only,0.5
+1,JPEG,6250,0.72032,method_a_gbt_norm-jpeg75_aligned-jpeg-only,0.5
+0,JPEG,6250,0.29328,method_a_gbt_norm-jpeg75_aligned-jpeg-only,val_fpr5
+1,JPEG,6250,0.38976,method_a_gbt_norm-jpeg75_aligned-jpeg-only,val_fpr5

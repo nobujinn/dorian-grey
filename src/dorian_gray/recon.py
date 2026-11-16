@@ -11,7 +11,16 @@ JPEG grid of the original is kept. 320 px covers what both methods look at (Meth
 Method B: the central 224 px crop) with a 32 px margin against the autoencoder's border effects, and keeps the cost
 at ~0.8 s per image on the GTX 1050 (512 px: 1.8 s, 1 GB VRAM; 768 px: 10 s, 2 GB). The latent mean is decoded
 (no sampling noise), so the reconstruction is deterministic.
+
+`match_jpeg=True` (variant `jpeg`): the decoder removes the JPEG history of a JPEG original, so after the shared
+JPEG q75 normalisation a real JPEG is compressed twice and its reconstruction once. A detector can then learn
+"compressed once = fake" (results log 19: B trained on reconstructions only flagged real PNGs 2.9x as often as
+real JPEGs). The fix (as in AlignedForensics): re-encode the reconstruction with the original's own quantisation
+tables and chroma subsampling, so both have the same compression history. The crop offset is a multiple of 8, so
+the new 8x8 grid lies on the original's.
 """
+
+import io
 
 import numpy as np
 import torch
@@ -31,8 +40,26 @@ def center_crop8(image: Image.Image, max_side: int = MAX_SIDE) -> Image.Image:
     return image.crop((left, top, left + cw, top + ch))
 
 
+def match_jpeg(original: Image.Image, recon: Image.Image) -> Image.Image:
+    """Re-encode `recon` like the JPEG `original` (same quantisation tables, subsampling, grayscale or colour)."""
+    if original.format != "JPEG":
+        return recon
+    from PIL import JpegImagePlugin
+    if original.mode == "L":
+        recon, options = recon.convert("L"), {}
+    else:
+        sampling = JpegImagePlugin.get_sampling(original)
+        options = {"subsampling": sampling} if sampling != -1 else {}
+    buf = io.BytesIO()
+    recon.save(buf, "JPEG", qtables=original.quantization, **options)
+    out = Image.open(buf)
+    out.load()
+    return out
+
+
 class VaeReconstructor:
-    def __init__(self, name: str = VAE_NAME):
+    def __init__(self, name: str = VAE_NAME, match_jpeg: bool = False):
+        self.match_jpeg = match_jpeg
         from diffusers import AutoencoderKL
         self.device = device()
         self.dtype = torch.float16 if self.device.type == "cuda" else torch.float32
@@ -51,4 +78,5 @@ class VaeReconstructor:
             y = self._roundtrip(x.to(self.device, torch.float32))
             self.vae.to(self.dtype)
         y = ((y[0].float().clamp(-1, 1) + 1) * 127.5).round().byte().permute(1, 2, 0).cpu().numpy()
-        return Image.fromarray(y, "RGB")
+        recon = Image.fromarray(y, "RGB")
+        return match_jpeg(image, recon) if self.match_jpeg else recon

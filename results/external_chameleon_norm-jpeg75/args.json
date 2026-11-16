@@ -7,17 +7,25 @@
     "method_b_norm-jpeg75",
     "method_b_norm-jpeg75_aligned",
     "method_b_norm-jpeg75_aligned-only",
+    "method_b_norm-jpeg75_aligned-jpeg",
+    "method_b_norm-jpeg75_aligned-jpeg-only",
     "method_a_gbt_norm-jpeg75",
     "method_a_gbt_norm-jpeg75_aligned",
-    "method_a_gbt_norm-jpeg75_aligned-only"
+    "method_a_gbt_norm-jpeg75_aligned-only",
+    "method_a_gbt_norm-jpeg75_aligned-jpeg",
+    "method_a_gbt_norm-jpeg75_aligned-jpeg-only"
   ],
   "n": 26033,
   "models": {
     "method_b_norm-jpeg75": "20261031-133746",
     "method_b_norm-jpeg75_aligned": "20261116-013228",
     "method_b_norm-jpeg75_aligned-only": "20261116-013249",
+    "method_b_norm-jpeg75_aligned-jpeg": "20261116-044608",
+    "method_b_norm-jpeg75_aligned-jpeg-only": "20261116-044630",
     "method_a_gbt_norm-jpeg75": "20261031-133350",
     "method_a_gbt_norm-jpeg75_aligned": "20261116-013308",
-    "method_a_gbt_norm-jpeg75_aligned-only": "20261116-013716"
+    "method_a_gbt_norm-jpeg75_aligned-only": "20261116-013716",
+    "method_a_gbt_norm-jpeg75_aligned-jpeg": "20261116-044649",
+    "method_a_gbt_norm-jpeg75_aligned-jpeg-only": "20261116-045054"
   }
 }

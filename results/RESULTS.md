@@ -28,7 +28,7 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `method_{a_gbt,b}_aug-deg_norm-jpeg75/`, `robustness_{a_gbt,b}_aug-deg_norm-jpeg75/` | `deg` augmentation: 5 seeds on CF and robustness (sections 18.2, 18.3) |
 | `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
 | `method_{a_gbt,b}_aug_norm-jpeg75/`, `mixed_ntire2026_train_aug_norm-jpeg75/`, `robustness_*_norm-jpeg75/` | Augmentation with normalised input, robustness of the normalised models (section 16) |
-| `method_{a_gbt,b}_norm-jpeg75_aligned/`, `…_aligned-only/`, `external_chameleon_norm-jpeg75/` | Aligned training data (SD-VAE reconstructions of the reals as fakes), CF 5 seeds and independent sets incl. Chameleon (section 19) |
+| `method_{a_gbt,b}_norm-jpeg75_aligned[-jpeg][-only]/`, `robustness_b_norm-jpeg75_aligned-jpeg[-only]/`, `external_chameleon_norm-jpeg75/` | Aligned training data (SD-VAE reconstructions of the reals as fakes), CF 5 seeds, robustness, independent sets incl. Chameleon (section 19) |
 | `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
 | `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training), `robustness_classifier.pdf/.png` (A linear vs. A trees vs. B, augmented training), `robustness_unseen_ops.pdf/.png` (operations not used in training, section 8) |
 
@@ -1209,7 +1209,7 @@ used, and the test sets are exactly those of section 9.
 `prepare --method a b --normalize jpeg75 --reconstruct`, then `classify --input jpeg75 --aligned` (CF fakes +
 reconstructions) and `--aligned --no-fakes` (reconstructions as the *only* fakes: no generated image in training).
 Independent sets with `external --input jpeg75`, seed 0, CF thresholds. Runs `method_{b,a_gbt}_norm-jpeg75_aligned`,
-`…_aligned-only` (5 seeds), `external_{aigi_now_pixel,ntire2026_val,chameleon}_norm-jpeg75` (new run of each). Baseline =
+`…_aligned-only` (5 seeds), `external_{aigi_now_pixel,ntire2026_val,chameleon}_norm-jpeg75` (run of 16. 11. 04:xx: all 10 models, incl. 19.3). Baseline =
 section 9 (normalised, no aligned data). **Chameleon** (AIDE paper, `yan2025sanity`; test split: 14,863 real,
 11,170 AI-generated images, chosen to look real to humans) is evaluated here for the first time.
 
@@ -1244,23 +1244,84 @@ reconstructions → **0.124 / 0.357** with reconstructions only; A trees 0.151 /
 - **Method A gains nothing on Chameleon** (0.53 → 0.50; chance), so on hard, realistic fakes the forensic
   features carry no signal even with aligned training. This supports the roles chosen for the framework: B decides
   "generated or not", A localises edits.
-- **A new shortcut: compression history.** Real JPEGs are compressed twice (original + q75), while reconstructions are
-  compressed once, because the decoder removes the original JPEG history. With reconstructions as the only fakes,
-  B flags real PNG images (compressed once, like the fakes) 2.9× as often as real JPEGs (0.357 vs. 0.124). The aligned
-  setup removes the content and format difference but adds this one. The fix used by AlignedForensics: compress
-  each reconstruction with the JPEG quality of its original before normalisation.
+- **Reconstruction-trained models flag real PNG images much more often than real JPEGs** (B, reconstructions only:
+  0.357 vs. 0.124). The first explanation, compression history, was tested and **rejected** (19.3). The supported
+  explanation is that resampling looks like the decoder (19.4).
 - **The CF threshold does not hold on Chameleon** (real FPR 0.40–0.51 for B with CF fakes), as on NTIRE. The
   reconstruction-only model flags only 12.8 % of Chameleon reals at the highest AUC (0.796). Its scores are better
   calibrated for these reals, but it misses 44 % of the fakes.
-- **Consequence:** aligned data is worth keeping for B. The default model stays `mixed_ntire2026_train_aug_norm-jpeg75`
-  (section 16.2) until (1) the reconstructions get the JPEG history of their originals and (2) aligned data is combined
-  with the NTIRE training data. QuickGELU is still open (section 20), and these features use the same backbone as all
-  other B runs.
+
+### 19.3 Control: reconstructions with the JPEG history of their original (16. 11.)
+
+Hypothesis: real JPEGs are compressed twice (original + q75), but a reconstruction only once, since the decoder
+removes the original's JPEG history; "compressed once" would then be a new cue for "fake". Fix as in AlignedForensics:
+`prepare --reconstruct jpeg` (`recon.match_jpeg`) re-encodes each reconstruction with the original's own quantisation
+tables and chroma subsampling before the q75 normalisation (unit-tested; checked on real images: identical tables,
+4:2:0 kept). Only the 4 JPEG real shards change (all sampled images JPEG; the 5 PNG shards all PNG, so their
+reconstructions are identical). `classify --aligned jpeg [--no-fakes]`, runs `method_{b,a_gbt}_norm-jpeg75_aligned-jpeg[-only]`.
+
+| Model | CF unseen AUC (FNR at 5 % FPR) | Real JPEG / PNG flagged at 0.5 | AIGI-Now | NTIRE val | Chameleon |
+|---|---|---|---|---|---|
+| B + recon. | 0.954 (0.183) → 0.953 (0.183) | 0.132 / 0.196 → 0.132 / 0.196 | 0.890 → 0.890 | 0.553 → 0.555 | 0.785 → 0.786 |
+| B, recon. only | 0.846 (0.485) → 0.842 (0.494) | 0.124 / 0.357 → 0.118 / 0.356 | 0.866 → 0.866 | 0.528 → 0.533 | 0.796 → 0.796 |
+| A trees + recon. | 0.899 (0.439) → 0.899 (0.428) | 0.236 / 0.252 → 0.234 / 0.248 | 0.891 → 0.893 | 0.552 → 0.549 | 0.502 → 0.522 |
+| A trees, recon. only | 0.836 (0.629) → 0.829 (0.640) | 0.200 / 0.283 → 0.196 / 0.285 | 0.843 → 0.844 | 0.574 → 0.572 | 0.475 → 0.461 |
+
+(plain → `jpeg` variant; CF: 5 seeds; independent sets: seed 0, AUC.) **No change anywhere** (≤ 0.02). The
+compression history of the reconstruction is not what the models use, and the PNG/JPEG gap is not a compression cue.
+
+### 19.4 What the PNG reals have in common with reconstructions: resampling
+
+Per real shard (B, reconstructions only, seed 0, test reals flagged at 0.5): the JPEG shards (117–141), native
+640 × 480-type photos, 0.09–0.15; the PNG shards 157–181 (short side exactly 512, i.e. resized by the dataset
+curators) 0.33–0.35; shard 101 (all 1024 × 1024) 0.42. At equal pixel count (0.2–0.5 MP) the gap remains
+(PNG 0.329 vs. JPEG 0.114), so it is not image size but the resampling. Direct test with the robustness subset
+(`robustness --method b --input jpeg75 --aligned jpeg [--no-fakes]`, seed 0, 1,000 images per group, runs
+`robustness_b_norm-jpeg75_aligned-jpeg[-only]`): resampling or smoothing the *real JPEGs* makes them look like
+reconstructions.
+
+Real JPEGs flagged at 0.5 after an operation (420 real JPEGs of the subset; B, CF fakes → + recon. → recon. only):
+
+| Condition | Real JPEG flagged |
+|---|---|
+| none | 0.067 → 0.129 → 0.114 |
+| resize ×0.75 | 0.171 → 0.421 → 0.431 |
+| resize ×1.5 | 0.545 → 0.869 → 0.819 |
+| blur σ=1 | 0.293 → 0.752 → 0.826 |
+| WebP 75 | 0.417 → 0.795 → 0.755 |
+| noise σ=3 | 0.098 → 0.160 → 0.148 |
+
+Unseen generators, AUC (FPR / FNR at the clean 5 % validation-FPR threshold):
+
+| Condition | B (CF fakes) | B + recon. | B, recon. only |
+|---|---|---|---|
+| none | 0.967 (0.065 / 0.119) | 0.952 (0.059 / 0.147) | 0.856 (0.052 / 0.438) |
+| JPEG 50 | 0.948 (0.142 / 0.102) | 0.898 (0.148 / 0.220) | 0.745 (0.089 / 0.616) |
+| resize ×1.5 | 0.933 (0.284 / 0.066) | 0.908 (0.411 / 0.057) | 0.798 (0.359 / 0.200) |
+| blur σ=1 | 0.929 (0.193 / 0.107) | 0.886 (**0.434** / 0.086) | 0.730 (0.470 / 0.242) |
+| WebP 75 | 0.941 (0.302 / 0.041) | 0.911 (**0.521** / 0.036) | 0.762 (0.454 / 0.197) |
+| resize ×0.75 + JPEG 80 | 0.955 (0.084 / 0.152) | 0.932 (0.141 / 0.129) | 0.793 (0.140 / 0.406) |
+
+**Findings (19.3–19.4)**
+- **The decoder trace the probe learns is mostly "missing fine detail".** Anything that removes high frequencies from a
+  real photo (resampling, blur, WebP) pushes it towards "fake", noise does not. The reconstruction-trained model
+  flags 83 % of blurred and 82 % of upscaled real JPEGs. Curator-resized PNG reals are the same effect already present
+  in the clean data. This is the frozen-CLIP version of the limit stated for aligned training: the reconstruction
+  teaches "looks like a decoder output", and smooth real images look like that too.
+- **Robustness cost of the aligned data:** adding the reconstructions lowers B's AUC under every perturbation
+  (by 0.01–0.05) and roughly doubles the false alarms on processed real images at the fixed threshold (blur 0.19 → 0.43,
+  WebP 0.30 → 0.52, resize ×1.5 0.28 → 0.41). The gain on Chameleon / AIGI-Now (19.2) is bought with this.
+- **Consequence:** aligned data is **not adopted** for the default model. The default stays
+  `mixed_ntire2026_train_aug_norm-jpeg75` (section 16.2). It is a useful result for the thesis: a
+  shortcut-free training set by construction still has a shortcut (smoothness), and the robustness protocol of
+  this work is what reveals it. The variant worth trying later is reconstructions *plus* the same resize /
+  blur augmentation applied to the reals (the reals must also contain smooth images), but section 18 showed that
+  augmentation does not move the AUC of these frozen features, so it is BP2 at most.
 
 ## 20. Open issues / next steps
 
-- **Aligned data (19):** give each reconstruction the JPEG history of its original (compression-history shortcut),
-  then combine with the NTIRE training data; evaluate on Chameleon as well.
+- **Aligned data (19):** not adopted (robustness cost, smoothness shortcut, 19.4). BP2 at most: reconstructions plus
+  resize / blur augmentation of the reals. Chameleon to be added to the standard independent sets.
 - **CLIP activation mismatch (11. 11.):** open_clip warns that the `ViT-L-14` config uses GELU, while the OpenAI
   weights were trained with QuickGELU (`ViT-L-14-quickgelu`). All Method B features so far were extracted this way,
   consistently, so the comparisons hold, but the backbone is not exactly the original CLIP. Fix = switch the model
