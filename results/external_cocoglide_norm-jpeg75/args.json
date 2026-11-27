@@ -1,0 +1,19 @@
+{
+  "name": "cocoglide",
+  "root": "E:\\datasets\\cocoglide",
+  "manifest": "manifest.csv",
+  "input": "jpeg75",
+  "runs": [
+    "method_b_norm-jpeg75",
+    "method_a_gbt_norm-jpeg75",
+    "mixed_ntire2026_train_aug_norm-jpeg75/b",
+    "mixed_ntire2026_train_aug_norm-jpeg75/a_gbt"
+  ],
+  "n": 1024,
+  "models": {
+    "method_b_norm-jpeg75": "20261031-133746",
+    "method_a_gbt_norm-jpeg75": "20261031-133350",
+    "mixed_ntire2026_train_aug_norm-jpeg75/b": "20261108-080759",
+    "mixed_ntire2026_train_aug_norm-jpeg75/a_gbt": "20261108-080759"
+  }
+}

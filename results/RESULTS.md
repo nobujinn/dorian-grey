@@ -29,6 +29,7 @@ from 30. 10. 2026 on have a `threshold` column with both.
 | `method_a_norm-jpeg75/`, `method_a_gbt_norm-jpeg75/`, `method_b_norm-jpeg75/` | Every image re-encoded as JPEG q75 before feature extraction (section 9) |
 | `method_{a_gbt,b}_aug_norm-jpeg75/`, `mixed_ntire2026_train_aug_norm-jpeg75/`, `robustness_*_norm-jpeg75/` | Augmentation with normalised input, robustness of the normalised models (section 16) |
 | `method_{a_gbt,b}_norm-jpeg75_aligned[-jpeg][-only]/`, `robustness_b_norm-jpeg75_aligned-jpeg[-only]/`, `external_chameleon_norm-jpeg75/` | Aligned training data (SD-VAE reconstructions of the reals as fakes), CF 5 seeds, robustness, independent sets incl. Chameleon (section 19) |
+| `external_cocoglide_norm-jpeg75/` | Whole-image A and B on CocoGlide local AI edits, by edited-area share (section 20) |
 | `explain_method_a/`, `explain_method_a_gbt_aug/` | Per-group and per-feature contributions to the log-odds per image group (section 7) |
 | `figures/` | `robustness.pdf/.png` (A vs. B), `robustness_augmentation.pdf/.png` (clean vs. augmented training), `robustness_classifier.pdf/.png` (A linear vs. A trees vs. B, augmented training), `robustness_unseen_ops.pdf/.png` (operations not used in training, section 8) |
 
@@ -1318,7 +1319,42 @@ Unseen generators, AUC (FPR / FNR at the clean 5 % validation-FPR threshold):
   blur augmentation applied to the reals (the reals must also contain smooth images), but section 18 showed that
   augmentation does not move the AUC of these frozen features, so it is BP2 at most.
 
-## 20. Open issues / next steps
+## 20. Local AI edits of real photos: whole-image methods on CocoGlide (27. 11. 2026)
+
+**Question:** do the two whole-image detectors notice that a real photo was only *partly* changed? A first
+number before the localisation work.
+**Data** (`data/cocoglide.py`): CocoGlide (TruFor paper, `guillaro2023trufor`), 512 MS-COCO photos and, for each, a
+version in which one object region was repainted by the GLIDE diffusion model (text-guided inpainting, prompt = the
+object's class), with a mask of that region. Paired: every edited image has its own original among the reals. All
+images are 256 × 256 PNG RGB, so format and size carry no label information. Edited share of the image: median
+16 % (2 %–99.8 %); grouped < 10 % (192 images, median 5.2 %), 10–25 % (123, median 15.8 %), > 25 % (197, median 45.4 %).
+**Models** (no retraining, seed 0, `external --name cocoglide --input jpeg75`, run
+`external_cocoglide_norm-jpeg75/20261127-020110`): the format-normalised CF models (section 9) and the framework's
+default models (CF + NTIRE + augmentation, section 16.2), with their own 5 % validation-FPR thresholds. Each size
+group's edited images against all 512 reals.
+
+### 20.1 AUC (FNR at the 5 % validation-FPR threshold in brackets); FPR on the 512 reals in the last row
+
+| Edited share of the image | B, CF | A trees, CF | B, framework default | A trees, framework default |
+|---|---|---|---|---|
+| < 10 % | 0.528 (0.849) | 0.460 (0.870) | 0.533 (0.958) | 0.447 (0.958) |
+| 10–25 % | 0.724 (0.626) | 0.504 (0.813) | 0.708 (0.821) | 0.528 (0.927) |
+| > 25 % | **0.888** (0.299) | 0.632 (0.675) | **0.897** (0.477) | 0.699 (0.746) |
+| All 512 edited images | 0.714 (0.584) | 0.537 (0.781) | 0.715 (0.740) | 0.563 (0.869) |
+| *FPR on the reals* | *0.096* | *0.162* | *0.021* | *0.076* |
+
+**Findings**
+- **Whole-image detection does not see small local edits.** When less than 10 % of the photo was repainted, both
+  methods are at chance (AUC 0.45–0.53). The framework's default B passes 96 % of these edited images as real.
+- **B's detection grows with the edited area** (0.53 → 0.72 → 0.89): B reacts to how much of the image is
+  generated, not to the fact that something was changed. With more than a quarter repainted it is close to its level
+  on fully generated images.
+- **Method A as a whole-image classifier is near chance at every size** (0.45–0.70), as on other hard sets (19.2).
+- **Consequence:** a local edit needs its own step that compares regions *within* the image and outputs a map:
+  the planned training-free localisation (PLAN, localisation prototype). These whole-image numbers are its baseline.
+  Next: pixel F1 / IoU of block-wise Method A and the PhotoHolmes methods on CocoGlide and CASIA v2, against TruFor.
+
+## 21. Open issues / next steps
 
 - **Aligned data (19):** not adopted (robustness cost, smoothness shortcut, 19.4). BP2 at most: reconstructions plus
   resize / blur augmentation of the reals. Chameleon to be added to the standard independent sets.

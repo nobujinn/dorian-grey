@@ -1,0 +1,17 @@
+label,format,size,mean,model,threshold
+0,PNG,512,0.111328125,method_b_norm-jpeg75,0.5
+1,PNG,512,0.44140625,method_b_norm-jpeg75,0.5
+0,PNG,512,0.095703125,method_b_norm-jpeg75,val_fpr5
+1,PNG,512,0.416015625,method_b_norm-jpeg75,val_fpr5
+0,PNG,512,0.333984375,method_a_gbt_norm-jpeg75,0.5
+1,PNG,512,0.392578125,method_a_gbt_norm-jpeg75,0.5
+0,PNG,512,0.162109375,method_a_gbt_norm-jpeg75,val_fpr5
+1,PNG,512,0.21875,method_a_gbt_norm-jpeg75,val_fpr5
+0,PNG,512,0.115234375,mixed_ntire2026_train_aug_norm-jpeg75/b,0.5
+1,PNG,512,0.451171875,mixed_ntire2026_train_aug_norm-jpeg75/b,0.5
+0,PNG,512,0.021484375,mixed_ntire2026_train_aug_norm-jpeg75/b,val_fpr5
+1,PNG,512,0.259765625,mixed_ntire2026_train_aug_norm-jpeg75/b,val_fpr5
+0,PNG,512,0.318359375,mixed_ntire2026_train_aug_norm-jpeg75/a_gbt,0.5
+1,PNG,512,0.412109375,mixed_ntire2026_train_aug_norm-jpeg75/a_gbt,0.5
+0,PNG,512,0.076171875,mixed_ntire2026_train_aug_norm-jpeg75/a_gbt,val_fpr5
+1,PNG,512,0.130859375,mixed_ntire2026_train_aug_norm-jpeg75/a_gbt,val_fpr5
